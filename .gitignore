@@ -1,0 +1,16 @@
+# Vercel
+.vercel/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.python_packages/
+.venv/
+
+# VSCode
+.vscode/
+
+# Environment
+.env
