@@ -387,61 +387,43 @@ def process_financial_report(file_path: str, account_id: str, file_record_id: st
 
 def main():
     """
-    Função principal que orquestra o upload e processamento do relatório.
-    1. Recebe os argumentos da linha de comando (enviados pelo n8n).
-    2. Cria um registro na tabela 'received_files' para rastrear o arquivo.
-    3. Faz o upload do arquivo para o Supabase Storage.
-    4. Inicia o processamento do relatório (limpeza, salvamento, cálculo de KPIs).
-    5. Imprime um JSON final indicando sucesso ou falha.
+    Função principal SIMPLIFICADA para processar o relatório SEM salvar no banco.
+    1. Recebe os argumentos da linha de comando.
+    2. Limpa e prepara os dados da planilha.
+    3. Gera a mensagem de resumo com os KPIs.
+    4. Imprime um JSON com o resumo para o n8n.
     """
-    parser = argparse.ArgumentParser(description='Processa relatório financeiro do iFood e faz upload para o Supabase.')
+    parser = argparse.ArgumentParser(description='Processa relatório financeiro do iFood.')
     parser.add_argument('--filepath', required=True, help='Caminho para o arquivo de relatório .xlsx temporário.')
     parser.add_argument('--account-id', required=True, help='ID da conta do usuário no Supabase.')
-    # O número de telefone é recebido para uso futuro no envio da resposta.
-    parser.add_argument('--phone-number', required=True, help='Número de telefone do usuário para envio de resposta.')
+    # O número de telefone não é utilizado nesta versão simplificada, mas o argumento é mantido.
+    parser.add_argument('--phone-number', required=True, help='Número de telefone do usuário.')
     args = parser.parse_args()
 
-    file_record_id = None
-    original_filename = os.path.basename(args.filepath)
-
     try:
-        # --- Etapa 1: Criar registro de rastreamento no banco de dados ---
-        print(f"-> Criando registro para o arquivo '{original_filename}'...")
-        insert_response = supabase.table('received_files').insert({
-            'account_id': args.account_id,
-            'original_file_name': original_filename,
-            'status': 'received',
-            'source': 'whatsapp_n8n'
-        }).execute()
+        # Etapa 1: Limpar e preparar os dados
+        print("-> (Modo Simples) Limpando e preparando os dados...")
+        df_cleaned = clean_and_prepare_data(args.filepath, args.account_id)
+        print("   - Dados limpos com sucesso.")
 
-        if not insert_response.data:
-            raise Exception("Falha ao criar registro do arquivo no banco de dados.")
-        
-        file_record_id = insert_response.data[0]['id']
-        print(f"   - Registro criado com sucesso. ID: {file_record_id}")
+        # Etapa 2: Gerar a mensagem de resumo
+        print("-> (Modo Simples) Gerando mensagem de resumo...")
+        # A função generate_summary_message não depende do banco de dados para os cálculos.
+        summary_message = generate_summary_message(df_cleaned, args.account_id)
+        print("   - Mensagem de resumo gerada.")
 
-        # --- Etapa 2: Fazer upload do arquivo para o Storage ---
-        print(f"\n-> Fazendo upload do arquivo '{original_filename}' para o Supabase Storage...")
-        # A função upload_file_to_storage já existe e lida com a lógica de upload.
-        upload_file_to_storage(args.filepath, args.account_id, file_record_id)
-        
-        # --- Etapa 3: Iniciar o processamento completo do relatório ---
-        # A função process_financial_report já tem seu próprio try/except e lida
-        # com a atualização de status ('processing', 'processed', 'error').
-        process_financial_report(args.filepath, args.account_id, file_record_id)
-
-        # Se process_financial_report terminar sem exceção, o script termina com sucesso.
-        # A própria função já imprime o JSON de sucesso, então não precisamos fazer nada aqui.
+        # Etapa 3: Imprimir o resultado final como JSON para o n8n
+        print("\n--- SUCESSO (Modo Simples) ---")
+        print(json.dumps({
+            "status": "success",
+            "message": "Relatório processado com sucesso (modo de simulação).",
+            "summary": summary_message
+        }))
 
     except Exception as e:
-        error_message = f"Erro fatal na orquestração do script: {e}"
-        print(f"\n--- ERRO CRÍTICO NO FLUXO PRINCIPAL ---", file=sys.stderr)
+        error_message = f"Erro ao processar o relatório (modo de simulação): {e}"
+        print(f"\n--- ERRO CRÍTICO (Modo Simples) ---", file=sys.stderr)
         print(error_message, file=sys.stderr)
-        
-        # Se já tivermos um ID de arquivo, atualizamos seu status para 'error'
-        if file_record_id:
-            print(f"\n-> Tentando atualizar o status do arquivo {file_record_id} para 'error'...")
-            update_file_status(file_record_id, 'error', str(e))
         
         # Imprime o JSON de erro final e encerra o script com código de erro
         print(json.dumps({"status": "error", "message": error_message}), file=sys.stderr)
