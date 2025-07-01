@@ -1,0 +1,239 @@
+{
+  "name": "iFood Sales Concierge - Main Workflow",
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Start",
+      "type": "n8n-nodes-base.start",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "path": "ifood-report-webhook",
+        "options": {
+          "binaryData": true,
+          "rawBody": true
+        }
+      },
+      "name": "Webhook (WhatsApp)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        460,
+        300
+      ],
+      "webhookId": "YOUR_WEBHOOK_ID_HERE"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, customer_name, whatsapp_number FROM customers WHERE whatsapp_number = '{{$json.body.messages[0].from}}' LIMIT 1;"
+      },
+      "name": "Get Customer from DB",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIALS_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "filePath": "/tmp/",
+        "options": {}
+      },
+      "name": "Write Binary File",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "received_files",
+        "columns": {
+          "customer_id": "{{$node[\"Get Customer from DB\"].json.id}}",
+          "file_name": "{{$json.body.messages[0].document.filename}}",
+          "status": "pending"
+        }
+      },
+      "name": "Create File Record",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        300
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIALS_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "command": "python3 /path/to/your/project/ifood_sales_concierge/scripts/process_report.py '{{$node[\"Write Binary File\"].json.fileName}}' '{{$node[\"Get Customer from DB\"].json.id}}' '{{$node[\"Create File Record\"].json.id}}'"
+      },
+      "name": "Execute Python Script",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "{{$node[\"Execute Python Script\"].json.stderr}}",
+              "operation": "isEmpty"
+            }
+          ]
+        }
+      },
+      "name": "Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.z-api.io/instances/SUA_INSTANCIA/token/SEU_TOKEN/send-text",
+        "method": "POST",
+        "sendBody": true,
+        "bodyFormat": "json",
+        "body": "{\"phone\": \"={{ $node['Get Customer from DB'].json.whatsapp_number }}\", \"message\": \"{{ JSON.parse($node['Execute Python Script'].json.stdout).summary_message }}\"}"
+      },
+      "name": "Send Success Message (API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1860,
+        280
+      ],
+      "id": "b1c2d3e4-f5a6-7890-1234-567890abcdef"
+    },
+    {
+      "parameters": {
+        "url": "https://api.z-api.io/instances/SUA_INSTANCIA/token/SEU_TOKEN/send-text",
+        "method": "POST",
+        "sendBody": true,
+        "bodyFormat": "json",
+        "body": "{\"phone\": \"={{ $node['Get Customer from DB'].json.whatsapp_number }}\", \"message\": \"{{ JSON.parse($node['Execute Python Script'].json.stderr).error }}\"}"
+      },
+      "name": "Send Error Message (API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1860,
+        500
+      ],
+      "id": "c2d3e4f5-a6b7-8901-2345-678901bcdefg"
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Webhook (WhatsApp)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (WhatsApp)": {
+      "main": [
+        [
+          {
+            "node": "Get Customer from DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Customer from DB": {
+      "main": [
+        [
+          {
+            "node": "Write Binary File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Binary File": {
+      "main": [
+        [
+          {
+            "node": "Create File Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create File Record": {
+      "main": [
+        [
+          {
+            "node": "Execute Python Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Python Script": {
+      "main": [
+        [
+          {
+            "node": "Success?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Success?": {
+      "main": [
+        [
+          {
+            "node": "Send Success Message (API)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Error Message (API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

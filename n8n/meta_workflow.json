@@ -1,0 +1,313 @@
+{
+  "name": "iFood Sales Concierge - Meta API",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "meta-whatsapp-webhook",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "Webhook (Meta)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        20,
+        320
+      ],
+      "webhookId": "YOUR_META_WEBHOOK_ID"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extrai o número do remetente, ID da mídia e nome do arquivo\nconst body = $json.body;\nconst message = body.entry[0].changes[0].value.messages[0];\n\nconst from = message.from;\nconst document = message.document;\nconst mediaId = document ? document.id : null;\nconst fileName = document ? document.filename : null;\n\n// Retorna os dados para os próximos nós\nreturn { from, mediaId, fileName };"
+      },
+      "name": "Extract Sender and Media ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        260,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, phone_number, role FROM users WHERE phone_number = '{{$node[\"Extract Sender and Media ID\"].json.from}}' LIMIT 1;"
+      },
+      "name": "Get User from DB",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        500,
+        320
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIALS_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "{{$node[\"Get User from DB\"].json.length}}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "name": "Is User Authorized?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        740,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://graph.facebook.com/v19.0/{{$node[\"Extract Sender and Media ID\"].json.mediaId}}",
+        "options": {}
+      },
+      "name": "Get Media URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        980,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_META_API_CREDENTIALS_ID",
+          "name": "Meta API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{$node[\"Get Media URL\"].json.url}}",
+        "options": {
+          "response": {
+            "response": "file"
+          }
+        }
+      },
+      "name": "Download File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1220,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_META_API_CREDENTIALS_ID",
+          "name": "Meta API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "/home/ismar/CascadeProjects/ifood_sales_concierge/uploads/",
+        "fileName": "{{$node[\"Extract Sender and Media ID\"].json.fileName}}",
+        "options": {}
+      },
+      "name": "Save Spreadsheet",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [
+        1460,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "command": "python3 /home/ismar/CascadeProjects/ifood_sales_concierge/scripts/process_report.py '{{$node[\"Save Spreadsheet\"].json.filePath}}' '{{$node[\"Get User from DB\"].json[0].id}}'"
+      },
+      "name": "Execute Python Script",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1700,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "{{$node[\"Execute Python Script\"].json.stderr}}",
+              "operation": "isEmpty"
+            }
+          ]
+        }
+      },
+      "name": "Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1940,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://graph.facebook.com/v19.0/YOUR_PHONE_NUMBER_ID/messages",
+        "method": "POST",
+        "sendBody": true,
+        "bodyFormat": "json",
+        "body": "{\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{$node['Extract Sender and Media ID'].json.from}}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"{{JSON.parse($node['Execute Python Script'].json.stdout).summary_message}}\"\n  }\n}",
+        "options": {}
+      },
+      "name": "Send Summary Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        2180,
+        220
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_META_API_CREDENTIALS_ID",
+          "name": "Meta API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://graph.facebook.com/v19.0/YOUR_PHONE_NUMBER_ID/messages",
+        "method": "POST",
+        "sendBody": true,
+        "bodyFormat": "json",
+        "body": "{\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{$node['Extract Sender and Media ID'].json.from}}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"Ocorreu um erro ao processar seu arquivo. A equipe de suporte já foi notificada.\"\n  }\n}",
+        "options": {}
+      },
+      "name": "Send Error Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        2180,
+        420
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_META_API_CREDENTIALS_ID",
+          "name": "Meta API Credentials"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook (Meta)": {
+      "main": [
+        [
+          {
+            "node": "Extract Sender and Media ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Sender and Media ID": {
+      "main": [
+        [
+          {
+            "node": "Get User from DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get User from DB": {
+      "main": [
+        [
+          {
+            "node": "Is User Authorized?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is User Authorized?": {
+      "main": [
+        [
+          {
+            "node": "Get Media URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Media URL": {
+      "main": [
+        [
+          {
+            "node": "Download File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download File": {
+      "main": [
+        [
+          {
+            "node": "Save Spreadsheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Spreadsheet": {
+      "main": [
+        [
+          {
+            "node": "Execute Python Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Python Script": {
+      "main": [
+        [
+          {
+            "node": "Success?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Success?": {
+      "main": [
+        [
+          {
+            "node": "Send Summary Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Error Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

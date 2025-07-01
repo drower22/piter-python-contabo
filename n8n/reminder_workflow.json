@@ -1,0 +1,126 @@
+{
+  "name": "iFood Sales Concierge - Daily Reminder",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "itemData": [
+            {
+              "hour": 10,
+              "mode": "everyDay"
+            }
+          ]
+        }
+      },
+      "name": "Schedule Trigger (10am)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Seleciona clientes que não enviaram arquivo hoje\nSELECT c.whatsapp_number\nFROM customers c\nLEFT JOIN received_files rf ON c.id = rf.customer_id AND rf.received_at::date = CURRENT_DATE\nWHERE rf.id IS NULL;"
+      },
+      "name": "Get Customers to Remind",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        460,
+        300
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIALS_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": "message_templates",
+        "select": "template_text",
+        "filters": {
+          "filters": [
+            {
+              "key": "template_name",
+              "operator": "eq",
+              "value": "daily_reminder"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "name": "Get Reminder Template",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1420,
+        300
+      ],
+      "credentials": {
+        "supabase": {
+          "id": "your_supabase_credential_id",
+          "name": "Supabase account"
+        }
+      },
+      "id": "a1b2c3d4-e5f6-7890-1234-567890abcdef"
+    },
+    {
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1640,
+        300
+      ],
+      "parameters": {
+        "url": "https://api.z-api.io/instances/SUA_INSTANCIA/token/SEU_TOKEN/send-text",
+        "method": "POST",
+        "sendBody": true,
+        "bodyFormat": "json",
+        "body": "{\"phone\": \"={{ $json.whatsapp_number }}\", \"message\": \"{{ $('Get Reminder Template').item.json.template_text }}\"}"
+      },
+      "id": "d4e5f6a7-b8c9-d0e1-f2a3-b4c5d6e7f8a9",
+      "name": "Send Reminder (API)"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger (10am)": {
+      "main": [
+        [
+          {
+            "node": "Get Customers to Remind",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Customers to Remind": {
+      "main": [
+        [
+          {
+            "node": "Get Reminder Template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Reminder Template": {
+      "main": [
+        [
+          {
+            "node": "Send Reminder (API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
