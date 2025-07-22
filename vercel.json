@@ -1,7 +1,0 @@
-{
-  "functions": {
-    "api/upload_planilha.py": {
-      "runtime": "python3.9"
-    }
-  }
-}
