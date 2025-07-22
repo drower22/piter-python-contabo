@@ -1,433 +1,389 @@
 import pandas as pd
+import numpy as np
 import sys
 import os
 import datetime
-from datetime import date, timedelta
 import json
+import time
+import traceback
+import uuid
 from supabase import create_client, Client
 from dotenv import load_dotenv
 import argparse
 
-# --- Configuração do Supabase ---
-# Torna o carregamento do .env à prova de falhas, encontrando o caminho absoluto
+# --- Configuração do Supabase e .env ---
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(script_dir)
 dotenv_path = os.path.join(project_root, '.env')
 load_dotenv(dotenv_path=dotenv_path)
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+# --- Constantes do Schema ---
+TABLE_SALES_DATA = 'sales_data'
+TABLE_RECEIVED_FILES = 'received_files'
+TABLE_LOGS = 'logs'
 
-if not SUPABASE_URL or not SUPABASE_KEY:
-    print("Erro Crítico: Variáveis de ambiente SUPABASE_URL ou SUPABASE_KEY não foram encontradas.", file=sys.stderr)
-    sys.exit(1)
+# --- Sistema de Logging Centralizado ---
+class SupabaseLogger:
+    def __init__(self, supabase_client: Client):
+        self.supabase = supabase_client
+        self.file_id = None
+        self.account_id = None
+        self.log_buffer = []
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    def set_context(self, file_id: str = None, account_id: str = None):
+        if file_id: self.file_id = file_id
+        if account_id: self.account_id = account_id
 
-# Mapeamento de nomes de colunas para constantes (EXATAMENTE como no cabeçalho da planilha)
-COL_STORE_ID = "LOJA_ID"
-COL_STORE_NAME = "NOME_DA_LOJA"
-COL_BILLING_TYPE = "TIPO_DE_FATURAMENTO"
-COL_SALES_CHANNEL = "CANAL_DE_VENDAS"
-COL_ORDER_NUMBER = "N°_PEDIDO"
-COL_ORDER_ID = "PEDIDO_ID_COMPLETO"
-COL_ORDER_DATE = "DATA_DO_PEDIDO_OCORRENCIA"
-COL_CONFIRMATION_DATE = "DATA_DE_CONCLUSÃO"
-COL_REPASSE_DATE = "DATA_DE_REPASSE"
-COL_PAYMENT_ORIGIN = "ORIGEM_DE_FORMA_DE_PAGAMENTO"
-COL_PAYMENT_METHOD = "FORMAS_DE_PAGAMENTO"
-COL_TOTAL_ORDER_VALUE = "TOTAL_DO_PEDIDO"
-COL_ITEMS_VALUE = "VALOR_DOS_ITENS"
-COL_DELIVERY_FEE = "TAXA_DE_ENTREGA"
-COL_SERVICE_FEE = "TAXA_DE_SERVIÇO"
-COL_IFOOD_PROMO = "PROMOCAO_CUSTEADA_PELO_IFOOD"
-COL_STORE_PROMO = "PROMOCAO_CUSTEADA_PELA_LOJA"
-COL_IFOOD_COMMISSION_PERC = "PERCENTUAL_COMISSAO_IFOOD"
-COL_IFOOD_COMMISSION_VALUE = "VALOR_COMISSAO_IFOOD"
-COL_PAYMENT_TX_PERC = "PERCENTUAL_PELA_TRANSAÇÃO_DO_PAGAMENTO"
-COL_PAYMENT_TX_VALUE = "COMISSAO_PELA_TRANSACAO_DO_PAGAMENTO"
-COL_REPASSE_PLAN_PERC = "PERCENTUAL_TAXA_PLANO_DE_REPASSE_EM_1_SEMANA"
-COL_REPASSE_PLAN_VALUE = "VALOR_TAXA_PLANO_DE_REPASSE_EM_1_SEMANA"
-COL_CALC_BASE = "BASE_DE_CALCULO"
-COL_GROSS_VALUE = "VALOR_BRUTO"
-COL_DELIVERY_REQUEST = "SOLICITACAO_DE_SERVICOS_DE_ENTREGA_IFOOD"
-COL_DELIVERY_DISCOUNT = "DESCONTO_NA_SOLICITACAO_DE_ENTREGA_IFOOD"
-COL_NET_VALUE = "VALOR_LIQUIDO"
-COL_EVENT_VALUE = "VALOR_OCORRENCIA"
-BUCKET_NAME = 'ifood-reports'
-
-# --- Funções de Banco de Dados, Storage e Templates ---
-
-def update_file_status(file_record_id: str, status: str, error_message: str = None):
-    """Atualiza o status de um arquivo processado na tabela received_files."""
-    print(f"-> Atualizando status do arquivo {file_record_id} para '{status}'...")
-    if error_message:
-        # Limita a mensagem de erro para não poluir o log
-        print(f"   Com a mensagem de erro: {str(error_message)[:200]}...")
-        
-    try:
-        update_data = {
-            'status': status,
-            'processed_at': datetime.datetime.now().isoformat(),
-            'error_message': error_message
+    def log(self, level: str, message: str, context: dict = None):
+        payload = {
+            "level": level.upper(),
+            "message": message,
+            "file_id": self.file_id,
+            "account_id": self.account_id,
+            "context": context
         }
-        response = supabase.table('received_files').update(update_data).eq('id', file_record_id).execute()
-        
-        if not response.data:
-            print(f"   AVISO: Nenhum registro encontrado para o file_record_id {file_record_id} ao tentar atualizar o status.", file=sys.stderr)
-        else:
-            print(f"   Status do arquivo {file_record_id} atualizado com sucesso no banco.")
+        self.log_buffer.append(payload)
+        print(f"[{level.upper()}] {message}")
+
+    def flush(self):
+        if not self.log_buffer:
+            return
+        try:
+            self.supabase.table(TABLE_LOGS).insert(self.log_buffer).execute()
+            self.log_buffer = []
+        except Exception as e:
+            print(f"[CRITICAL] Falha ao escrever logs no Supabase: {e}", file=sys.stderr)
+            print(f"[CRITICAL] Logs perdidos: {self.log_buffer}", file=sys.stderr)
+
+# Colunas esperadas no arquivo Excel
+EXPECTED_COLUMNS = [
+    'id_do_pedido', 'id_do_pedido_na_loja', 'data_do_pedido', 'canal_de_venda',
+    'valor_dos_produtos', 'taxa_de_entrega', 'taxa_adicional_de_entrega',
+    'taxa_de_servico', 'descontos', 'beneficios_ifood', 'valor_total_do_pedido',
+    'valor_liquido_do_pedido', 'tipo_de_pagamento', 'metodo_de_pagamento',
+    'id_da_transacao_do_pagamento', 'tipo_de_pedido', 'modalidade_de_entrega',
+    'entregador', 'id_do_cliente', 'nome_do_cliente', 'cpf_na_nota'
+]
+
+def init_supabase_client() -> Client:
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
+    if not url or not key:
+        raise ValueError("As variáveis de ambiente SUPABASE_URL e SUPABASE_KEY são obrigatórias.")
+    return create_client(url, key)
+
+def update_file_status(logger: SupabaseLogger, supabase: Client, file_id: str, status: str, error_message: str = None):
+    try:
+        update_data = {"status": status, "processed_at": datetime.datetime.now().isoformat()}
+        if error_message:
+            update_data["error_details"] = error_message
+
+        supabase.table(TABLE_RECEIVED_FILES).update(update_data).eq("id", file_id).execute()
+        logger.log('info', f"Status do arquivo atualizado para '{status}'.")
+    except Exception as e:
+        logger.log('error', f"FALHA CRÍTICA ao atualizar status do arquivo: {e}")
+
+def read_and_clean_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
+    logger.log('info', f"Iniciando leitura do arquivo: {file_path}")
+    try:
+        df = pd.read_excel(file_path, dtype=str)
+        logger.log('info', f"{len(df)} linhas brutas lidas do arquivo.")
+
+        # 1. Normaliza os nomes das colunas para bater com o schema do banco
+        df.columns = [c.lower().strip().replace(' ', '_').replace('n°', 'numero').replace('ç', 'c').replace('ã', 'a').replace('é', 'e') for c in df.columns]
+        logger.log('info', f'Nomes de colunas normalizados: {list(df.columns)}')
+        print(f'[DEBUG] Colunas normalizadas: {list(df.columns)}')
+
+        # 2. Define as colunas que precisam de tratamento especial (dinheiro, percentual, data)
+        money_columns = [
+            'total_do_pedido', 'valor_dos_itens', 'taxa_de_entrega', 'taxa_de_servico',
+            'promocao_custeada_pelo_ifood', 'promocao_custeada_pela_loja',
+            'valor_comissao_ifood', 'comissao_pela_transacao_do_pagamento',
+            'valor_taxa_plano_repasse_1_semana', 'base_de_calculo', 'valor_bruto',
+            'solicitacao_servicos_entrega_ifood', 'desconto_solicitacao_entrega_ifood',
+            'valor_liquido', 'valor_ocorrencia'
+        ]
+        percent_columns = [
+            'percentual_comissao_ifood',
+            'percentual_pela_transacao_do_pagamento',
+            'percentual_taxa_plano_de_repasse_em_1_semana'
+        ]
+        date_columns = ['data_do_pedido_ocorrencia', 'data_de_conclusao', 'data_de_repasse']
+
+        # 3. Funções de conversão definitivas e específicas
+        def parse_as_cents(value):
+            """Lê um valor, trata como centavos e divide por 100."""
+            if pd.isna(value): return None
+            try:
+                # Converte para número, ignorando texto, e divide por 100
+                return float(value) / 100.0
+            except (ValueError, TypeError):
+                # Se a conversão falhar, tenta limpar a string primeiro
+                if isinstance(value, str):
+                    try:
+                        cleaned_value = value.replace('R$', '').strip()
+                        return float(cleaned_value) / 100.0
+                    except (ValueError, TypeError):
+                        return None
+                return None
+
+        def parse_as_decimal(value):
+            """Lê um valor no padrão brasileiro (com vírgula) e converte para decimal."""
+            if pd.isna(value): return None
+            if isinstance(value, (int, float)): return float(value)
+            if isinstance(value, str):
+                try:
+                    cleaned_value = value.replace('R$', '').strip().replace('.', '').replace(',', '.')
+                    return float(cleaned_value)
+                except (ValueError, TypeError):
+                    return None
+            return None
+
+        # 4. Corrigir apenas a coluna 'total_do_pedido' com lógica definitiva para todos os formatos
+        if 'total_do_pedido' in df.columns:
+            def parse_total_do_pedido(value):
+                if pd.isna(value): return None
+                s = str(value).replace('R$', '').strip()
+                # Caso 1: padrão brasileiro com vírgula (ex: 126,00)
+                if ',' in s:
+                    cleaned = s.replace('.', '').replace(',', '.')
+                    try:
+                        return float(cleaned)
+                    except (ValueError, TypeError):
+                        return None
+                # Caso 2: tem ponto e termina com .00 (ex: 126.00)
+                if '.' in s:
+                    parts = s.split('.')
+                    if len(parts[-1]) == 2:
+                        try:
+                            return float(s)
+                        except (ValueError, TypeError):
+                            return None
+                # Caso 3: inteiro grande (ex: 12600)
+                try:
+                    num = float(s)
+                    if num == int(num) and abs(num) > 99:
+                        return num / 100.0
+                    return num
+                except (ValueError, TypeError):
+                    return None
+            df['total_do_pedido'] = df['total_do_pedido'].apply(parse_total_do_pedido)
+
+        # Conversão robusta para colunas percentuais
+        def parse_percent(value):
+            if isinstance(value, str):
+                value = value.replace('%', '').replace(',', '.').strip()
+            if value == '' or value is None:
+                return None
+            try:
+                val = float(value)
+                # Se vier como fração (ex: 0.11), converte para percentual (11.0)
+                if 0 < val <= 1:
+                    val = val * 100
+                # Garante apenas uma casa decimal
+                return round(val, 1)
+            except Exception:
+                
+                return None
+        for col in percent_columns:
+            if col in df.columns:
+                print(f'[DEBUG] Antes do parse_percent na coluna {col}:', df[col].tolist())
+                df[col] = df[col].apply(parse_percent)
+                print(f'[DEBUG] Depois do parse_percent na coluna {col}:', df[col].tolist())
+
+        for col in date_columns:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+
+        logger.log('info', 'Limpeza e conversão de tipos concluída.')
+
+        # Renomeia colunas específicas para corresponder ao schema final do banco de dados
+        rename_map = {
+            'desconto_na_solicitacao_de_entrega_ifood': 'desconto_solicitacao_entrega_ifood',
+            'solicitacao_de_servicos_de_entrega_ifood': 'solicitacao_servicos_entrega_ifood'
+        }
+        df.rename(columns=rename_map, inplace=True)
+
+        return df
 
     except Exception as e:
-        print(f"   ERRO CRÍTICO ao atualizar status do arquivo {file_record_id}: {e}", file=sys.stderr)
-        # Re-lança a exceção para que o fluxo principal saiba que algo deu errado.
+        logger.log('error', f"Falha ao ler ou limpar o arquivo: {e}", context={'traceback': traceback.format_exc()})
         raise
 
-def upload_file_to_storage(file_path: str, account_id: str, file_id: str) -> str:
-    """Faz o upload de um arquivo para o Supabase Storage com logs detalhados."""
-    try:
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"Arquivo local não encontrado em: {file_path}")
-
-        file_name = os.path.basename(file_path)
-        storage_file_path = f"{account_id}/{file_name}"
-
-        with open(file_path, 'rb') as f:
-            # O SDK do Supabase espera um objeto de arquivo binário
-            response = supabase.storage.from_("ifood-reports").upload(
-                path=storage_file_path,
-                file=f,
-                file_options={"cache-control": "3600", "upsert": "true"} 
-            )
-        
-        return storage_file_path
-    except Exception as e:
-        # Captura exceções de upload e as propaga
-        update_file_status(file_id, 'error', f"Falha no upload: {e}")
-        raise IOError(f"Falha ao fazer upload do arquivo para o Supabase Storage: {e}")
-
-def get_message_template(template_name: str, fallback: str) -> str:
-    """Busca um template de mensagem no banco de dados."""
-    try:
-        response = supabase.table('message_templates').select('template_text').eq('template_name', template_name).single().execute()
-        return response.data['template_text']
-    except Exception as e:
-        print(f"Erro ao buscar template '{template_name}', usando fallback: {e}", file=sys.stderr)
-        return fallback
-
-def get_kpis_from_db(account_id: str, report_date: date):
-    """Busca KPIs de uma data específica no banco de dados."""
-    try:
-        response = supabase.table('daily_kpis').select('*').eq('account_id', account_id).eq('report_date', report_date.isoformat()).execute()
-        if response.data:
-            return response.data[0]
-        return None
-    except Exception as e:
-        print(f"Erro ao buscar KPIs no DB: {e}", file=sys.stderr)
-        return None
-
-
-
-def to_iso(val):
-    """Converte valor para data e hora em formato ISO 8601, retornando None em caso de falha."""
-    if pd.isna(val):
-        return None
-    try:
-        return pd.to_datetime(val).isoformat()
-    except (ValueError, TypeError):
-        # Se a conversão falhar, avisa e retorna None para que seja inserido NULL no DB
-        print(f"DEBUG: Não foi possível converter '{val}' para data. Será salvo como NULO.")
-        return None
-
-def to_float(val):
-    """Converte moeda brasileira (ex: 'R$ 1.999,00' ou '2,60%') para float."""
-    if pd.isna(val):
-        return None
-    if isinstance(val, (int, float)):
-        return float(val)
-    if isinstance(val, str):
-        val = val.strip()
-        is_percentage = '%' in val
-        
-        # Remove R$, % e espaços. Troca vírgula de decimal por ponto.
-        # Importante: não remove o ponto de milhar ainda.
-        cleaned_val = val.replace('R$', '').replace('%', '').strip()
-        # Converte o formato brasileiro (1.000,50) para o padrão (1000.50)
-        if '.' in cleaned_val and ',' in cleaned_val:
-            cleaned_val = cleaned_val.replace('.', '').replace(',', '.')
-        else:
-            cleaned_val = cleaned_val.replace(',', '.')
-
-        if not cleaned_val:
-            return None
-        try:
-            num = float(cleaned_val)
-            if is_percentage:
-                return num / 100.0
-            return num
-        except (ValueError, TypeError):
-            print(f"DEBUG: Não foi possível converter '{val}' para float. Será salvo como NULO.")
-            return None
-    return None
-
-def to_str(val):
-    if pd.isna(val) or val == 'nan':
-        return None
-    return str(val)
-
-def read_and_clean_data(file_path: str) -> pd.DataFrame:
-    """Lê o arquivo Excel e valida as colunas esperadas."""
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Arquivo não encontrado no caminho: {file_path}")
-
-    df = pd.read_excel(file_path, engine='openpyxl')
-
-    # Lista de todas as colunas esperadas
-    expected_columns = [
-        COL_STORE_ID, COL_STORE_NAME, COL_BILLING_TYPE, COL_SALES_CHANNEL,
-        COL_ORDER_NUMBER, COL_ORDER_ID, COL_ORDER_DATE, COL_CONFIRMATION_DATE,
-        COL_REPASSE_DATE, COL_PAYMENT_ORIGIN, COL_PAYMENT_METHOD,
-        COL_TOTAL_ORDER_VALUE, COL_ITEMS_VALUE, COL_DELIVERY_FEE,
-        COL_SERVICE_FEE, COL_IFOOD_PROMO, COL_STORE_PROMO,
-        COL_IFOOD_COMMISSION_PERC, COL_IFOOD_COMMISSION_VALUE,
-        COL_PAYMENT_TX_PERC, COL_PAYMENT_TX_VALUE, COL_REPASSE_PLAN_PERC,
-        COL_REPASSE_PLAN_VALUE, COL_CALC_BASE, COL_GROSS_VALUE,
-        COL_DELIVERY_REQUEST, COL_DELIVERY_DISCOUNT, COL_NET_VALUE,
-        COL_EVENT_VALUE
+def save_sales_data(logger: SupabaseLogger, supabase: Client, df: pd.DataFrame, account_id: str, file_id: str):
+    logger.log('info', f"Iniciando preparação de {len(df)} registros para o banco de dados.")
+    
+    df['account_id'] = account_id
+    df['received_file_id'] = file_id
+    
+    # Criação da chave de upsert condicional:
+    # Criação da chave de upsert robusta para evitar duplicatas no mesmo lote.
+    # A chave será uma combinação de colunas que garantem a unicidade do lançamento.
+    # Para linhas sem 'numero_pedido', um UUID único ainda será usado como fallback.
+    logger.log('info', "Gerando 'upsert_key' robusta para cada registro.")
+    
+    key_cols = [
+        'numero_pedido',
+        'pedido_id_completo',
+        'data_de_repasse',
+        'valor_bruto',
+        'valor_ocorrencia'
     ]
 
-    # Verifica se todas as colunas esperadas estão presentes
-    missing_cols = [col for col in expected_columns if col not in df.columns]
-    if missing_cols:
-        # Se colunas estiverem faltando, lança um erro claro
-        raise ValueError(f"O arquivo não pôde ser processado. As seguintes colunas obrigatórias não foram encontradas: {', '.join(missing_cols)}. Verifique se o relatório exportado está no formato correto.")
+    def create_upsert_key(row):
+        try:
+            # Tenta criar a chave composta se 'pedido_id_completo' for válido.
+            if pd.notna(row.get('pedido_id_completo')) and str(row.get('pedido_id_completo')).strip() != '':
+                unique_parts = [str(row.get(col, '')) for col in key_cols]
+                base_key = '_'.join(unique_parts)
+                # Anexa o índice da linha para garantir unicidade absoluta no lote.
+                return f"{base_key}_{row.name}"
+        except Exception:
+            # Se qualquer erro ocorrer durante a criação da chave composta, não interrompe o processo.
+            # A função continuará para o fallback de UUID.
+            pass
 
-    return df
+        # Fallback definitivo: Se a lógica acima falhar ou não for aplicável,
+        # gera um UUID único para garantir que a inserção não falhe por chave nula.
+        key = uuid.uuid4().hex
+        if not key:
+            logger.log('critical', f"FATAL: upsert_key gerada como NULA para a linha de índice {row.name}. Dados da linha: {row.to_dict()}")
+        return key
 
-def save_sales_data_to_db(account_id: str, file_record_id: str, df: pd.DataFrame):
-    """
-    Salva os dados do relatório financeiro na tabela sales_data, ignorando duplicatas.
-    Usa a funcionalidade 'upsert' do Supabase para inserir apenas registros novos,
-    baseado em uma constraint de unicidade (account_id, pedido_id_completo).
-    """
-    records_to_insert = []
+    df['upsert_key'] = df.apply(create_upsert_key, axis=1)
 
-    for index, row in df.iterrows():
-        # Validação para garantir que o ID do pedido não é nulo, o que violaria a constraint
-        order_id = to_str(row.get(COL_ORDER_ID))
-        if not order_id:
-            print(f"DEBUG: Ignorando linha {index + 2} por não ter um 'pedido_id_completo'.")
-            continue
+    # Debug: Verificar se ainda existem duplicatas na chave gerada
+    duplicates = df[df.duplicated(subset=['upsert_key'], keep=False)]
+    if not duplicates.empty:
+        logger.log('warning', f"Atenção: {len(duplicates)} linhas com 'upsert_key' duplicado foram encontradas APÓS a geração da chave robusta.")
+        logger.log('debug', f"Linhas duplicadas para inspeção:\n{duplicates[['upsert_key'] + key_cols].to_string()}")
+    
+    # Define as colunas de data que precisam ser convertidas para string
+    date_columns = ['data_do_pedido_ocorrencia', 'data_de_conclusao', 'data_de_repasse']
 
-        record = {
-            'account_id': account_id,
-            'received_file_id': file_record_id,
-            'loja_id': to_str(row.get(COL_STORE_ID)),
-            'nome_da_loja': to_str(row.get(COL_STORE_NAME)),
-            'tipo_de_faturamento': to_str(row.get(COL_BILLING_TYPE)),
-            'canal_de_vendas': to_str(row.get(COL_SALES_CHANNEL)),
-            'numero_pedido': to_str(row.get(COL_ORDER_NUMBER)),
-            'pedido_id_completo': order_id,
-            'data_do_pedido_ocorrencia': to_iso(row.get(COL_ORDER_DATE)),
-            'data_de_conclusao': to_iso(row.get(COL_CONFIRMATION_DATE)),
-            'data_de_repasse': to_iso(row.get(COL_REPASSE_DATE)),
-            'origem_de_forma_de_pagamento': to_str(row.get(COL_PAYMENT_ORIGIN)),
-            'formas_de_pagamento': to_str(row.get(COL_PAYMENT_METHOD)),
-            'total_do_pedido': to_float(row.get(COL_TOTAL_ORDER_VALUE)),
-            'valor_dos_itens': to_float(row.get(COL_ITEMS_VALUE)),
-            'taxa_de_entrega': to_float(row.get(COL_DELIVERY_FEE)),
-            'taxa_de_servico': to_float(row.get(COL_SERVICE_FEE)),
-            'promocao_custeada_pelo_ifood': to_float(row.get(COL_IFOOD_PROMO)),
-            'promocao_custeada_pela_loja': to_float(row.get(COL_STORE_PROMO)),
-            'percentual_comissao_ifood': to_float(row.get(COL_IFOOD_COMMISSION_PERC)),
-            'valor_comissao_ifood': to_float(row.get(COL_IFOOD_COMMISSION_VALUE)),
-            'percentual_pela_transacao_do_pagamento': to_float(row.get(COL_PAYMENT_TX_PERC)),
-            'comissao_pela_transacao_do_pagamento': to_float(row.get(COL_PAYMENT_TX_VALUE)),
-            'percentual_taxa_plano_repasse_1_semana': to_float(row.get(COL_REPASSE_PLAN_PERC)),
-            'valor_taxa_plano_repasse_1_semana': to_float(row.get(COL_REPASSE_PLAN_VALUE)),
-            'base_de_calculo': to_float(row.get(COL_CALC_BASE)),
-            'valor_bruto': to_float(row.get(COL_GROSS_VALUE)),
-            'solicitacao_servicos_entrega_ifood': to_float(row.get(COL_DELIVERY_REQUEST)),
-            'desconto_solicitacao_entrega_ifood': to_float(row.get(COL_DELIVERY_DISCOUNT)),
-            'valor_liquido': to_float(row.get(COL_NET_VALUE)),
-            'valor_ocorrencia': to_float(row.get(COL_EVENT_VALUE)),
-            'raw_data': json.dumps(row.astype(str).to_dict(), ensure_ascii=False)
-        }
-        records_to_insert.append(record)
+    # Converte as colunas de data para string no formato ISO 8601 para ser compatível com JSON
+    for col in date_columns:
+        if col in df.columns:
+            df[col] = df[col].apply(lambda x: x.isoformat() if pd.notnull(x) else None)
 
-    if not records_to_insert:
-        print("Nenhum registro válido para inserir após o processamento.")
+    # Substituir NaT e NaN por None para compatibilidade com JSON/Supabase
+    df_for_insert = df.replace({np.nan: None, pd.NaT: None})
+
+    # Gerar upsert_key estável: se houver pedido_id_completo, usa ele; senão, gera hash de campos estáveis
+    import hashlib
+    def gerar_upsert_key(row):
+        if row.get('pedido_id_completo'):
+            return f"{row['pedido_id_completo']}_{row.get('tipo_de_faturamento','')}"
+        else:
+            chave = f"{row.get('data_do_pedido_ocorrencia','')}"
+            return hashlib.sha256(chave.encode('utf-8')).hexdigest()
+    df_for_insert['upsert_key'] = df_for_insert.apply(gerar_upsert_key, axis=1)
+
+    # Lista final de colunas que existem na tabela 'sales_data' do Supabase.
+    # Isso garante que não tentaremos inserir colunas que não existem.
+    final_db_columns = [
+        'account_id', 'received_file_id', 'loja_id', 'nome_da_loja', 'tipo_de_faturamento',
+        'canal_de_vendas', 'numero_pedido', 'pedido_id_completo', 'data_do_pedido_ocorrencia',
+        'data_de_conclusao', 'data_de_repasse', 'origem_de_forma_de_pagamento', 'formas_de_pagamento',
+        'total_do_pedido', 'valor_dos_itens', 'taxa_de_entrega', 'taxa_de_servico',
+        'promocao_custeada_pelo_ifood', 'promocao_custeada_pela_loja', 'percentual_comissao_ifood',
+        'valor_comissao_ifood', 'percentual_pela_transacao_do_pagamento', 'comissao_pela_transacao_do_pagamento',
+        'percentual_taxa_plano_repasse_1_semana', 'valor_taxa_plano_repasse_1_semana', 'base_de_calculo',
+        'valor_bruto', 'solicitacao_servicos_entrega_ifood', 'desconto_solicitacao_entrega_ifood',
+        'valor_liquido', 'valor_ocorrencia', 'upsert_key'
+    ]
+
+    # Garante unicidade de upsert_key no DataFrame antes de montar records
+    df_for_insert = df_for_insert.drop_duplicates(subset=['upsert_key'], keep='last')
+    # Filtra o dataframe para conter apenas as colunas que serão enviadas.
+    cols_to_send = [col for col in final_db_columns if col in df_for_insert.columns]
+    records = df_for_insert[cols_to_send].to_dict(orient='records')
+    
+    if not records:
+        logger.log('warning', "Nenhum registro válido para inserir.")
         return
 
-    try:
-        print(f"Iniciando inserção de {len(records_to_insert)} registros em lote com de-duplicação...")
-        
-        # O método 'upsert' com 'ignore_duplicates=True' executa um 'INSERT ... ON CONFLICT DO NOTHING'.
-        # 'on_conflict' especifica as colunas da constraint de unicidade.
-        response = supabase.table('sales_data').upsert(
-            records_to_insert,
-            on_conflict='account_id,pedido_id_completo',
-            ignore_duplicates=True
-        ).execute()
-        
-        if hasattr(response, 'error') and response.error:
-            raise Exception(f"Erro do Supabase ao tentar inserir com de-duplicação: {response.error.message}")
-        
-        # A resposta de um upsert com ignore_duplicates não retorna as linhas, então apenas logamos o sucesso.
-        print(f"Operação de inserção em lote concluída. O banco de dados ignorou os registros duplicados.")
+    # -------- NOVO: Filtrar duplicados idênticos e processar em lotes --------
+    BATCH_SIZE = 500
+    colunas_relevantes = [col for col in cols_to_send if col not in ['upsert_key']]  # ajuste se necessário
 
-    except Exception as e:
-        print(f"Erro ao salvar dados de vendas no DB: {e}", file=sys.stderr)
-        if records_to_insert:
-            print("DEBUG: Amostra do primeiro registro que seria inserido:")
-            print(json.dumps(records_to_insert[0], indent=2, ensure_ascii=False))
-        raise e
+    # Buscar todos os pedido_id_completo já existentes em lotes
+    logger.log('info', 'Buscando pedido_id_completo já existentes no banco...')
+    existing_rows = {}
+    offset = 0
+    while True:
+        res = supabase.table('sales_data').select(','.join(['pedido_id_completo'] + colunas_relevantes)).range(offset, offset+BATCH_SIZE-1).execute()
+        if not res.data:
+            break
+        for row in res.data:
+            existing_rows[row['pedido_id_completo']] = row
+        if len(res.data) < BATCH_SIZE:
+            break
+        offset += BATCH_SIZE
 
+    def is_identical(new_row, existing_row):
+        for col in colunas_relevantes:
+            if new_row.get(col) != existing_row.get(col):
+                return False
+        return True
 
-def generate_summary_message(kpis: dict, account_id: str) -> str:
-    """Cria uma mensagem de resumo com base nos KPIs."""
-    report_date_str = pd.to_datetime(kpis.get('report_date')).strftime('%d/%m/%Y')
-    total_revenue = kpis.get('total_revenue', 0)
-    order_count = kpis.get('order_count', 0)
-    average_ticket = kpis.get('average_ticket', 0)
-    revenue_change = kpis.get('revenue_change_percentage', 0)
-    insight = ""
-    if revenue_change > 5:
-        insight = "🚀 Ótima notícia! Suas vendas cresceram bem em comparação com a semana passada."
-    elif revenue_change < -5:
-        insight = "📉 Atenção! Suas vendas tiveram uma queda em relação à semana passada. Vale a pena investigar o que aconteceu."
-    else:
-        insight = "😐 Suas vendas se mantiveram estáveis em comparação com a semana passada."
+    # Filtrar registros a enviar
+    to_upsert = []
+    for row in records:
+        pid = row['pedido_id_completo']
+        if pid not in existing_rows:
+            to_upsert.append(row)
+        elif not is_identical(row, existing_rows[pid]):
+            to_upsert.append(row)  # Vai atualizar porque mudou algo
+        # Se for idêntico, ignora
 
-    template = get_message_template('success_summary', "Resumo: R$ {total_revenue:,.2f} em {order_count} pedidos.")
-    message = template.format(
-        report_date_str=report_date_str,
-        total_revenue=total_revenue,
-        order_count=order_count,
-        average_ticket=average_ticket,
-        revenue_change=revenue_change,
-        insight=insight
-    ).replace('R$', 'R$ ').replace('.,', ',').replace(',.', '.')
-
-    return message
-
-def update_daily_kpis(account_id: str, df: pd.DataFrame):
-    """
-    Identifica as datas afetadas no DataFrame e chama a função SQL 
-    'recalculate_daily_kpis_for_dates' para recalcular os KPIs diretamente no banco.
-    """
-    print("Iniciando gatilho para recálculo de KPIs no banco de dados...")
-
-    # Garante que a coluna de data está no formato correto e extrai as datas únicas
-    df['kpi_date'] = pd.to_datetime(df[COL_ORDER_DATE], errors='coerce').dt.date
-    df.dropna(subset=['kpi_date'], inplace=True)
-    
-    unique_dates = df['kpi_date'].unique()
-
-    if len(unique_dates) == 0:
-        print("Nenhuma data válida encontrada no arquivo para recalcular KPIs.")
-        return
-
-    # Converte as datas para o formato string 'YYYY-MM-DD' que a função SQL espera
-    dates_to_recalculate = [d.strftime('%Y-%m-%d') for d in unique_dates]
-    
-    print(f"   - Datas afetadas: {', '.join(dates_to_recalculate)}")
-    print(f"   - Chamando a função 'recalculate_daily_kpis_for_dates' no Supabase...")
-
-    try:
-        # Chama a função SQL via RPC (Remote Procedure Call)
-        supabase.rpc(
-            'recalculate_daily_kpis_for_dates',
-            {'p_account_id': account_id, 'p_dates': dates_to_recalculate}
-        ).execute()
-        print("   - Recálculo de KPIs concluído com sucesso no banco de dados.")
-    except Exception as e:
-        print(f"   ERRO CRÍTICO ao chamar a função de recálculo de KPIs: {e}", file=sys.stderr)
-        # Re-lança a exceção para que o bloco principal de tratamento de erros a capture
-        raise
-
-def process_financial_report(file_path: str, account_id: str, file_record_id: str):
-    print(f"\n--- INICIANDO PROCESSAMENTO DO ARQUIVO ---")
-    print(f"  - Arquivo: {os.path.basename(file_path)}")
-    print(f"  - Account ID: {account_id}")
-    print(f"  - File Record ID: {file_record_id}")
-    print(f"-------------------------------------------")
-    
-    try:
-        print("\n[ETAPA 1/5] Atualizando status para 'processing'...")
-        update_file_status(file_record_id, 'processing')
-        
-        print("\n[ETAPA 2/5] Lendo e limpando dados da planilha...")
-        df = read_and_clean_data(file_path)
-        print(f"  - Leitura concluída. Encontradas {len(df)} linhas.")
-        
-        print("\n[ETAPA 3/5] Salvando dados de vendas no banco de dados...")
-        save_sales_data_to_db(account_id, file_record_id, df)
-        
-        print("\n[ETAPA 4/5] Calculando e atualizando KPIs diários...")
-        update_daily_kpis(account_id, df)
-        
-        print("\n[ETAPA 5/5] Atualizando status final para 'processed'...")
-        update_file_status(file_record_id, 'processed')
-        
-        print(f"\n--- PROCESSAMENTO CONCLUÍDO COM SUCESSO ---")
-        print(json.dumps({"status": "processed", "message": f"Arquivo {os.path.basename(file_path)} processado com sucesso."}))
-
-    except Exception as e:
-        error_message = f"Erro no processamento do arquivo {os.path.basename(file_path)}: {e}"
-        print(f"\n--- ERRO NO PROCESSAMENTO ---", file=sys.stderr)
-        print(f"  - Causa: {error_message}", file=sys.stderr)
-        print(f"---------------------------------", file=sys.stderr)
-        
-        print("\n[ETAPA FINAL - FALHA] Atualizando status para 'error'...")
-        update_file_status(file_record_id, 'error', str(e))
-        
-        print(json.dumps({"status": "error", "message": error_message}))
-        sys.exit(1)
+    logger.log('info', f'{len(to_upsert)} registros realmente novos ou alterados serão enviados ao Supabase.')
+    # Enviar em lotes
+    for i in range(0, len(to_upsert), BATCH_SIZE):
+        batch = to_upsert[i:i+BATCH_SIZE]
+        supabase.table('sales_data').upsert(batch, on_conflict=['upsert_key']).execute()
 
 def main():
-    """
-    Função principal SIMPLIFICADA para processar o relatório SEM salvar no banco.
-    1. Recebe os argumentos da linha de comando.
-    2. Limpa e prepara os dados da planilha.
-    3. Gera a mensagem de resumo com os KPIs.
-    4. Imprime um JSON com o resumo para o n8n.
-    """
-    parser = argparse.ArgumentParser(description='Processa relatório financeiro do iFood.')
-    parser.add_argument('--filepath', required=True, help='Caminho para o arquivo de relatório .xlsx temporário.')
-    parser.add_argument('--account-id', required=True, help='ID da conta do usuário no Supabase.')
-    # O número de telefone não é utilizado nesta versão simplificada, mas o argumento é mantido.
-    parser.add_argument('--phone-number', required=True, help='Número de telefone do usuário.')
+    print("--- SCRIPT EXECUTION STARTED ---")
+    parser = argparse.ArgumentParser(description='Processa relatório financeiro do iFood e salva no Supabase.')
+    parser.add_argument('--filepath', required=True, help='Caminho para o arquivo de relatório .xlsx.')
+    parser.add_argument('--account-id', required=True, type=str, help='ID da conta (UUID).')
+    parser.add_argument('--file-record-id', required=True, type=str, help='ID do registro do arquivo (UUID).')
     args = parser.parse_args()
 
+    supabase = None
+    logger = None
+    
     try:
-        # Etapa 1: Limpar e preparar os dados
-        print("-> (Modo Simples) Limpando e preparando os dados...")
-        df_cleaned = clean_and_prepare_data(args.filepath, args.account_id)
-        print("   - Dados limpos com sucesso.")
+        supabase = init_supabase_client()
+        logger = SupabaseLogger(supabase)
+        logger.set_context(file_id=args.file_record_id, account_id=args.account_id)
+        
+        logger.log('info', "Início do processamento do arquivo.")
+        update_file_status(logger, supabase, args.file_record_id, 'processing')
 
-        # Etapa 2: Gerar a mensagem de resumo
-        print("-> (Modo Simples) Gerando mensagem de resumo...")
-        # A função generate_summary_message não depende do banco de dados para os cálculos.
-        summary_message = generate_summary_message(df_cleaned, args.account_id)
-        print("   - Mensagem de resumo gerada.")
+        df = read_and_clean_data(logger, args.filepath)
+        save_sales_data(logger, supabase, df, args.account_id, args.file_record_id)
 
-        # Etapa 3: Imprimir o resultado final como JSON para o n8n
-        print("\n--- SUCESSO (Modo Simples) ---")
-        print(json.dumps({
-            "status": "success",
-            "message": "Relatório processado com sucesso (modo de simulação).",
-            "summary": summary_message
-        }))
+        update_file_status(logger, supabase, args.file_record_id, 'processed')
+        logger.log('info', "Processamento concluído com sucesso.")
+        print(json.dumps({"status": "success", "file_id": args.file_record_id}))
 
     except Exception as e:
-        error_message = f"Erro ao processar o relatório (modo de simulação): {e}"
-        print(f"\n--- ERRO CRÍTICO (Modo Simples) ---", file=sys.stderr)
-        print(error_message, file=sys.stderr)
+        error_message = f"Erro no processamento: {e}"
+        if logger:
+            logger.log('critical', f"{error_message}\n{traceback.format_exc()}")
+        else:
+            print(f"[CRITICAL] {error_message}", file=sys.stderr)
+
+        if supabase and args.file_record_id:
+            update_file_status(logger, supabase, args.file_record_id, 'error', str(e))
         
-        # Imprime o JSON de erro final e encerra o script com código de erro
-        print(json.dumps({"status": "error", "message": error_message}), file=sys.stderr)
-        sys.exit(1)
+        print(json.dumps({"status": "error", "message": str(e), "file_id": args.file_record_id}))
+
+    finally:
+        if logger:
+            logger.flush()
 
 if __name__ == "__main__":
     main()
