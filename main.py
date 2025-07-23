@@ -77,6 +77,47 @@ async def upload_planilha(
         # Em caso de erro, retorna uma resposta com status 500
         raise HTTPException(status_code=500, detail=f"Ocorreu um erro no upload: {str(e)}")
 
+import requests  # Adicionado para download de arquivos via URL
+
+@app.post("/upload/planilha-url", tags=["Uploads"], summary="Faz upload de uma planilha a partir de uma URL para o Supabase Storage")
+async def upload_planilha_url(
+    file_url: str = Form(..., description="URL do arquivo de planilha (xlsx, csv) para upload."),
+    user_id: str = Form(..., description="ID do usuário ou conta que está enviando o arquivo."),
+    filename: str = Form(..., description="Nome original do arquivo a ser salvo no bucket.")
+):
+    """
+    Faz o download do arquivo da URL fornecida e envia para o bucket 'financeiro' no Supabase Storage.
+    O caminho no bucket será estruturado como: `user_id/filename`.
+    """
+    try:
+        bucket_name = "financeiro"
+        path_in_bucket = f"{user_id}/{filename}"
+
+        # Faz o download do arquivo
+        response = requests.get(file_url)
+        response.raise_for_status()
+        contents = response.content
+
+        # Faz o upload para o Supabase Storage, sobrescrevendo se já existir (upsert=true)
+        upload_response = supabase.storage.from_(bucket_name).upload(
+            path=path_in_bucket,
+            file=contents,
+            file_options={"cache-control": "3600", "upsert": "true"}
+        )
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "Upload realizado com sucesso via URL!",
+                "path": path_in_bucket
+            }
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
 # Adicione aqui outros endpoints para chamar seus outros scripts
 # Exemplo:
 # @app.post("/processar/relatorio", tags=["Processamento"])
