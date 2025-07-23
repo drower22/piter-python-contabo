@@ -95,11 +95,11 @@ async def upload_planilha_url(
     Se o header Authorization for enviado, ele será repassado na requisição de download.
     """
     try:
-        bucket_name = "financeiro"
         tipo = tipo.lower().strip()
         if tipo not in ["financeiro", "conciliacao"]:
             return JSONResponse(status_code=400, content={"error": "Tipo inválido. Use 'financeiro' ou 'conciliacao'."})
-        path_in_bucket = f"{tipo}/{user_id}/{filename}"
+        bucket_name = tipo  # bucket = financeiro ou conciliacao
+        path_in_bucket = f"{user_id}/{filename}"
 
         # Busca o header Authorization, se enviado
         headers = {}
