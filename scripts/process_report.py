@@ -271,6 +271,8 @@ def save_sales_data(logger: SupabaseLogger, supabase: Client, df: pd.DataFrame, 
 
     # Gerar upsert_key estável: se houver pedido_id_completo, usa ele; senão, gera hash de campos estáveis
     import hashlib
+    final_db_columns = [
+        'account_id', 'received_file_id', 'loja_id', 'nome_da_loja', 'tipo_de_faturamento',
         'canal_de_vendas', 'numero_pedido', 'pedido_id_completo', 'data_do_pedido_ocorrencia',
         'data_de_conclusao', 'data_de_repasse', 'origem_de_forma_de_pagamento', 'formas_de_pagamento',
         'total_do_pedido', 'valor_dos_itens', 'taxa_de_entrega', 'taxa_de_servico',
