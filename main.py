@@ -4,6 +4,8 @@ from fastapi.responses import JSONResponse
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
+print("[DEBUG] Iniciando API iFood Sales Concierge...")
+
 # Carrega as variáveis de ambiente
 load_dotenv()
 
@@ -11,11 +13,18 @@ load_dotenv()
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
+print(f"[DEBUG] SUPABASE_URL: {SUPABASE_URL}")
+print(f"[DEBUG] SUPABASE_KEY: {SUPABASE_KEY[:6]}... (ocultado)")
+
 # Validação inicial das variáveis de ambiente
 if not SUPABASE_URL or not SUPABASE_KEY:
+    print("[ERRO] SUPABASE_URL e SUPABASE_KEY são obrigatórios no ambiente.")
     raise ValueError("SUPABASE_URL e SUPABASE_KEY são obrigatórios no ambiente.")
+else:
+    print("[DEBUG] Variáveis de ambiente carregadas com sucesso.")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+print("[DEBUG] Cliente Supabase inicializado.")
 
 # Cria a aplicação FastAPI
 app = FastAPI(
@@ -23,6 +32,7 @@ app = FastAPI(
     description="API para processar e gerenciar planilhas de vendas.",
     version="1.0.0"
 )
+print("[DEBUG] FastAPI inicializado.")
 
 @app.get("/", tags=["Status"], summary="Verifica se a API está online")
 def read_root():
