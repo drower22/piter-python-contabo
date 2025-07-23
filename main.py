@@ -86,16 +86,20 @@ async def upload_planilha_url(
     request: Request,
     file_url: str = Form(..., description="URL do arquivo de planilha (xlsx, csv) para upload."),
     user_id: str = Form(..., description="ID do usuário ou conta que está enviando o arquivo."),
-    filename: str = Form(..., description="Nome original do arquivo a ser salvo no bucket.")
+    filename: str = Form(..., description="Nome original do arquivo a ser salvo no bucket."),
+    tipo: str = Form(..., description="Tipo da planilha: financeiro ou conciliacao.")
 ):
     """
     Faz o download do arquivo da URL fornecida e envia para o bucket 'financeiro' no Supabase Storage.
-    O caminho no bucket será estruturado como: `user_id/filename`.
+    O caminho no bucket será estruturado como: `tipo/user_id/filename`, onde tipo pode ser 'financeiro' ou 'conciliacao'.
     Se o header Authorization for enviado, ele será repassado na requisição de download.
     """
     try:
         bucket_name = "financeiro"
-        path_in_bucket = f"{user_id}/{filename}"
+        tipo = tipo.lower().strip()
+        if tipo not in ["financeiro", "conciliacao"]:
+            return JSONResponse(status_code=400, content={"error": "Tipo inválido. Use 'financeiro' ou 'conciliacao'."})
+        path_in_bucket = f"{tipo}/{user_id}/{filename}"
 
         # Busca o header Authorization, se enviado
         headers = {}
@@ -118,7 +122,7 @@ async def upload_planilha_url(
         return JSONResponse(
             status_code=200,
             content={
-                "message": "Upload realizado com sucesso via URL!",
+                "message": f"Upload realizado com sucesso via URL para {tipo}!",
                 "path": path_in_bucket
             }
         )
