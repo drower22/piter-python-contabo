@@ -1,4 +1,5 @@
 import os
+import traceback
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import JSONResponse
 from supabase import create_client, Client
