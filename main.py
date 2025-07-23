@@ -67,11 +67,14 @@ async def upload_planilha(
             file_options={"cache-control": "3600", "upsert": "true"}
         )
 
+        # Salve o storage_path com a estrutura correta para uso futuro
+        storage_path = f"{bucket_name}/{path_in_bucket}"
+
         return JSONResponse(
             status_code=200,
             content={
                 "message": "Upload realizado com sucesso!",
-                "path": path_in_bucket
+                "path": storage_path
             }
         )
     except Exception as e:
