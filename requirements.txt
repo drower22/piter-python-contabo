@@ -4,3 +4,4 @@ python-dotenv
 supabase
 pandas
 openpyxl
+python-multipart
