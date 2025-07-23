@@ -1,4 +1,4 @@
-# Alteração forçada para sincronização do repositório em 2025-07-23
+# Re-sincronização forçada para garantir deploy da versão sem 'novos_kpis'
 import pandas as pd
 import numpy as np
 import sys
