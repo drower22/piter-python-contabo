@@ -79,8 +79,11 @@ async def upload_planilha(
 
 import requests  # Adicionado para download de arquivos via URL
 
+from fastapi import Request
+
 @app.post("/upload/planilha-url", tags=["Uploads"], summary="Faz upload de uma planilha a partir de uma URL para o Supabase Storage")
 async def upload_planilha_url(
+    request: Request,
     file_url: str = Form(..., description="URL do arquivo de planilha (xlsx, csv) para upload."),
     user_id: str = Form(..., description="ID do usuário ou conta que está enviando o arquivo."),
     filename: str = Form(..., description="Nome original do arquivo a ser salvo no bucket.")
@@ -88,13 +91,20 @@ async def upload_planilha_url(
     """
     Faz o download do arquivo da URL fornecida e envia para o bucket 'financeiro' no Supabase Storage.
     O caminho no bucket será estruturado como: `user_id/filename`.
+    Se o header Authorization for enviado, ele será repassado na requisição de download.
     """
     try:
         bucket_name = "financeiro"
         path_in_bucket = f"{user_id}/{filename}"
 
-        # Faz o download do arquivo
-        response = requests.get(file_url)
+        # Busca o header Authorization, se enviado
+        headers = {}
+        auth_header = request.headers.get("authorization")
+        if auth_header:
+            headers["Authorization"] = auth_header
+
+        # Faz o download do arquivo, repassando o header Authorization se existir
+        response = requests.get(file_url, headers=headers)
         response.raise_for_status()
         contents = response.content
 
