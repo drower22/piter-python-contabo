@@ -161,8 +161,26 @@ def run_processing_financeiro(file_id: str):
 
         storage_path = record.get('storage_path')
         account_id = record.get('account_id')
-        bucket_name = storage_path.split('/')[0]
-        path_in_bucket = '/'.join(storage_path.split('/')[1:])
+        if not storage_path:
+            logger.log("CRITICAL", f"O campo 'storage_path' está vazio no banco para o file_id {file_id}.")
+            logger.flush()
+            return
+
+        logger.log("INFO", f"[DEBUG] storage_path obtido do banco: '{storage_path}'")
+
+        # Correção para caminhos que possam começar com '/'
+        clean_storage_path = storage_path.lstrip('/')
+        path_parts = clean_storage_path.split('/')
+
+        if len(path_parts) < 2:
+            logger.log("CRITICAL", f"storage_path '{storage_path}' é inválido e não contém bucket/caminho.")
+            logger.flush()
+            return
+
+        bucket_name = path_parts[0]
+        path_in_bucket = '/'.join(path_parts[1:])
+
+        logger.log("INFO", f"[DEBUG] Tentando baixar de bucket: '{bucket_name}' com o caminho: '{path_in_bucket}'")
 
         # 2. Baixar o arquivo do Supabase Storage
         with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
