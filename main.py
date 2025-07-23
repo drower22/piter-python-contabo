@@ -13,8 +13,11 @@ load_dotenv()
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-print(f"[DEBUG] SUPABASE_URL: {SUPABASE_URL}")
-print(f"[DEBUG] SUPABASE_KEY: {SUPABASE_KEY[:6]}... (ocultado)")
+print(f"[DEBUG] SUPABASE_URL: {SUPABASE_URL if SUPABASE_URL else '[NÃO DEFINIDO]'}")
+if SUPABASE_KEY:
+    print(f"[DEBUG] SUPABASE_KEY: {SUPABASE_KEY[:6]}... (ocultado)")
+else:
+    print(f"[DEBUG] SUPABASE_KEY: [NÃO DEFINIDO]")
 
 # Validação inicial das variáveis de ambiente
 if not SUPABASE_URL or not SUPABASE_KEY:
