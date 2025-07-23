@@ -43,7 +43,8 @@ class SupabaseLogger:
             "context": context
         }
         self.log_buffer.append(payload)
-        print(f"[{level.upper()}] {message}")
+        if level.lower() in ["error", "critical", "warning"]:
+    print(f"[{level.upper()}] {message}")
 
     def flush(self):
         if not self.log_buffer:
@@ -92,7 +93,7 @@ def read_and_clean_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
         # 1. Normaliza os nomes das colunas para bater com o schema do banco
         df.columns = [c.lower().strip().replace(' ', '_').replace('n°', 'numero').replace('ç', 'c').replace('ã', 'a').replace('é', 'e') for c in df.columns]
         logger.log('info', f'Nomes de colunas normalizados: {list(df.columns)}')
-        print(f'[DEBUG] Colunas normalizadas: {list(df.columns)}')
+        # print(f'[DEBUG] Colunas normalizadas: {list(df.columns)}')  # Removido para evitar excesso de logs
 
         # 2. Define as colunas que precisam de tratamento especial (dinheiro, percentual, data)
         money_columns = [
@@ -256,7 +257,7 @@ def save_sales_data(logger: SupabaseLogger, supabase: Client, df: pd.DataFrame, 
     duplicates = df[df.duplicated(subset=['upsert_key'], keep=False)]
     if not duplicates.empty:
         logger.log('warning', f"Atenção: {len(duplicates)} linhas com 'upsert_key' duplicado foram encontradas APÓS a geração da chave robusta.")
-        logger.log('debug', f"Linhas duplicadas para inspeção:\n{duplicates[['upsert_key'] + key_cols].to_string()}")
+        # logger.log('debug', f"Linhas duplicadas para inspeção:\n{duplicates[['upsert_key'] + key_cols].to_string()}")  # Removido para evitar excesso de logs
     
     # Define as colunas de data que precisam ser convertidas para string
     date_columns = ['data_do_pedido_ocorrencia', 'data_de_conclusao', 'data_de_repasse']
