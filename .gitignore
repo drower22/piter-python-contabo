@@ -1,15 +1,19 @@
 # Vercel
 .vercel/
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.python_packages/
+# Ambientes virtuais Python
+venv/
 .venv/
 
-# VSCode
+# Caches Python
+__pycache__/
+*.pyc
+
+# Outros arquivos temporários
+*.pyo
+*.pyd
+*.swp
+.DS_Store
 .vscode/
 
 # Environment
