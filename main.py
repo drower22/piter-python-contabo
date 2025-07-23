@@ -151,52 +151,75 @@ def run_processing_financeiro(file_id: str):
     logger = SupabaseLogger(supabase_processor)
 
     try:
+        print(f"[PRINT] Iniciando processamento para file_id: {file_id}")
         # 1. Buscar detalhes do arquivo no banco
         response = supabase_processor.table('received_files').select('storage_path, account_id').eq('id', file_id).single().execute()
+        print(f"[PRINT] Resposta do select em received_files: {response}")
         record = response.data
         if not record:
+            print(f"[PRINT] Registro de arquivo com ID {file_id} não encontrado.")
             logger.log("ERROR", f"Registro de arquivo com ID {file_id} não encontrado.")
             logger.flush()
             return
 
         storage_path = record.get('storage_path')
         account_id = record.get('account_id')
+        print(f"[PRINT] storage_path do banco: {storage_path}")
+        print(f"[PRINT] account_id do banco: {account_id}")
         if not storage_path:
+            print(f"[PRINT] storage_path está vazio para file_id {file_id}")
             logger.log("CRITICAL", f"O campo 'storage_path' está vazio no banco para o file_id {file_id}.")
             logger.flush()
             return
 
         logger.log("INFO", f"[DEBUG] storage_path obtido do banco: '{storage_path}'")
+        print(f"[PRINT] [DEBUG] storage_path obtido do banco: '{storage_path}'")
 
         # Correção para caminhos que possam começar com '/'
         clean_storage_path = storage_path.lstrip('/')
         path_parts = clean_storage_path.split('/')
+        print(f"[PRINT] path_parts extraído: {path_parts}")
 
         if len(path_parts) < 2:
+            print(f"[PRINT] storage_path '{storage_path}' é inválido (partes: {path_parts})")
             logger.log("CRITICAL", f"storage_path '{storage_path}' é inválido e não contém bucket/caminho.")
             logger.flush()
             return
 
         bucket_name = path_parts[0]
         path_in_bucket = '/'.join(path_parts[1:])
+        print(f"[PRINT] bucket_name: {bucket_name}")
+        print(f"[PRINT] path_in_bucket: {path_in_bucket}")
 
         logger.log("INFO", f"[DEBUG] Tentando baixar de bucket: '{bucket_name}' com o caminho: '{path_in_bucket}'")
+        print(f"[PRINT] [DEBUG] Tentando baixar de bucket: '{bucket_name}' com o caminho: '{path_in_bucket}'")
 
         # 2. Baixar o arquivo do Supabase Storage
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
-            file_content = supabase_processor.storage.from_(bucket_name).download(path=path_in_bucket)
-            tmp_file.write(file_content)
-            temp_file_path = tmp_file.name
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+                print(f"[PRINT] Antes do download do arquivo do Storage...")
+                file_content = supabase_processor.storage.from_(bucket_name).download(path=path_in_bucket)
+                print(f"[PRINT] Download realizado com sucesso, tamanho: {len(file_content) if file_content else 'NULO'} bytes")
+                tmp_file.write(file_content)
+                temp_file_path = tmp_file.name
+        except Exception as download_exc:
+            print(f"[PRINT] ERRO AO BAIXAR ARQUIVO: {download_exc}")
+            logger.log("CRITICAL", f"ERRO AO BAIXAR ARQUIVO: {download_exc}", context={"traceback": traceback.format_exc()})
+            raise
 
         # 3. Chamar a função de processamento financeiro
+        print(f"[PRINT] Chamando processar_relatorio_financeiro com temp_file_path: {temp_file_path}")
         processar_relatorio_financeiro(supabase_processor, logger, temp_file_path, file_id, account_id)
+        print(f"[PRINT] processar_relatorio_financeiro finalizado!")
 
     except Exception as e:
         error_message = f"Erro no processamento em background para file_id {file_id}: {e}"
+        print(f"[PRINT] {error_message}")
         logger.log("CRITICAL", error_message, context={"traceback": traceback.format_exc()})
     finally:
         # 4. Limpar o arquivo temporário e o logger
         if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+            print(f"[PRINT] Removendo arquivo temporário: {temp_file_path}")
             os.remove(temp_file_path)
         logger.flush()
 
