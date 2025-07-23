@@ -44,7 +44,7 @@ class SupabaseLogger:
         }
         self.log_buffer.append(payload)
         if level.lower() in ["error", "critical", "warning"]:
-        print(f"[{level.upper()}] {message}")
+            print(f"[{level.upper()}] {message}")
 
     def flush(self):
         if not self.log_buffer:
