@@ -271,18 +271,6 @@ def save_sales_data(logger: SupabaseLogger, supabase: Client, df: pd.DataFrame, 
 
     # Gerar upsert_key estável: se houver pedido_id_completo, usa ele; senão, gera hash de campos estáveis
     import hashlib
-    def gerar_upsert_key(row):
-        if row.get('pedido_id_completo'):
-            return f"{row['pedido_id_completo']}_{row.get('tipo_de_faturamento','')}"
-        else:
-            chave = f"{row.get('data_do_pedido_ocorrencia','')}"
-            return hashlib.sha256(chave.encode('utf-8')).hexdigest()
-    df_for_insert['upsert_key'] = df_for_insert.apply(gerar_upsert_key, axis=1)
-
-    # Lista final de colunas que existem na tabela 'sales_data' do Supabase.
-    # Isso garante que não tentaremos inserir colunas que não existem.
-    final_db_columns = [
-        'account_id', 'received_file_id', 'loja_id', 'nome_da_loja', 'tipo_de_faturamento',
         'canal_de_vendas', 'numero_pedido', 'pedido_id_completo', 'data_do_pedido_ocorrencia',
         'data_de_conclusao', 'data_de_repasse', 'origem_de_forma_de_pagamento', 'formas_de_pagamento',
         'total_do_pedido', 'valor_dos_itens', 'taxa_de_entrega', 'taxa_de_servico',
@@ -343,47 +331,49 @@ def save_sales_data(logger: SupabaseLogger, supabase: Client, df: pd.DataFrame, 
         batch = to_upsert[i:i+BATCH_SIZE]
         supabase.table('sales_data').upsert(batch, on_conflict=['upsert_key']).execute()
 
+def processar_relatorio_financeiro(supabase: Client, logger: SupabaseLogger, file_path: str, file_id: str, account_id: str):
+    """
+    Processamento EXCLUSIVO do relatório financeiro do iFood.
+    Pode ser chamada de outros módulos.
+    """
+    logger.set_context(file_id=file_id, account_id=account_id)
+
+    try:
+        logger.log("INFO", f"Iniciando processamento do arquivo: {file_path}")
+        update_file_status(logger, supabase, file_id, 'processing')
+
+        df = read_and_clean_data(logger, file_path)
+        if df is None:
+            raise ValueError("A leitura e limpeza dos dados falhou. O DataFrame está vazio.")
+
+        save_sales_data(logger, supabase, df, account_id, file_id)
+        
+        update_file_status(logger, supabase, file_id, 'processed')
+        logger.log("INFO", "Processamento concluído com sucesso.")
+        print(json.dumps({"status": "success", "file_id": file_id}))
+
+    except Exception as e:
+        error_message = f"Erro no processamento: {e}"
+        tb_str = traceback.format_exc()
+        logger.log("ERROR", error_message, context={"traceback": tb_str})
+        update_file_status(logger, supabase, file_id, 'error', error_message)
+        print(json.dumps({"status": "error", "message": str(e), "file_id": file_id}))
+    
+    finally:
+        logger.flush()
+
 def main():
-    print("--- SCRIPT EXECUTION STARTED ---")
-    parser = argparse.ArgumentParser(description='Processa relatório financeiro do iFood e salva no Supabase.')
+    """Função para execução via linha de comando."""
+    parser = argparse.ArgumentParser(description="Processa um relatório financeiro do iFood e salva no Supabase.")
     parser.add_argument('--filepath', required=True, help='Caminho para o arquivo de relatório .xlsx.')
     parser.add_argument('--account-id', required=True, type=str, help='ID da conta (UUID).')
     parser.add_argument('--file-record-id', required=True, type=str, help='ID do registro do arquivo (UUID).')
     args = parser.parse_args()
 
-    supabase = None
-    logger = None
+    supabase_client = init_supabase_client()
+    logger = SupabaseLogger(supabase_client)
     
-    try:
-        supabase = init_supabase_client()
-        logger = SupabaseLogger(supabase)
-        logger.set_context(file_id=args.file_record_id, account_id=args.account_id)
-        
-        logger.log('info', "Início do processamento do arquivo.")
-        update_file_status(logger, supabase, args.file_record_id, 'processing')
-
-        df = read_and_clean_data(logger, args.filepath)
-        save_sales_data(logger, supabase, df, args.account_id, args.file_record_id)
-
-        update_file_status(logger, supabase, args.file_record_id, 'processed')
-        logger.log('info', "Processamento concluído com sucesso.")
-        print(json.dumps({"status": "success", "file_id": args.file_record_id}))
-
-    except Exception as e:
-        error_message = f"Erro no processamento: {e}"
-        if logger:
-            logger.log('critical', f"{error_message}\n{traceback.format_exc()}")
-        else:
-            print(f"[CRITICAL] {error_message}", file=sys.stderr)
-
-        if supabase and args.file_record_id:
-            update_file_status(logger, supabase, args.file_record_id, 'error', str(e))
-        
-        print(json.dumps({"status": "error", "message": str(e), "file_id": args.file_record_id}))
-
-    finally:
-        if logger:
-            logger.flush()
+    processar_relatorio_financeiro(supabase_client, logger, args.filepath, args.file_record_id, args.account_id)
 
 if __name__ == "__main__":
     main()

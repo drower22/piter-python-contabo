@@ -79,7 +79,15 @@ async def upload_planilha(
 
 import requests  # Adicionado para download de arquivos via URL
 
-from fastapi import Request
+from fastapi import Request, BackgroundTasks
+from pydantic import BaseModel
+import tempfile
+import os
+
+# Importa a lógica de processamento do script
+# Este endpoint é EXCLUSIVO para o processamento do relatório financeiro do iFood.
+from scripts.process_report import processar_relatorio_financeiro, init_supabase_client as init_processor_supabase, SupabaseLogger
+
 
 @app.post("/upload/planilha-url", tags=["Uploads"], summary="Faz upload de uma planilha a partir de uma URL para o Supabase Storage")
 async def upload_planilha_url(
@@ -132,9 +140,58 @@ async def upload_planilha_url(
             content={"error": str(e)}
         )
 
-# Adicione aqui outros endpoints para chamar seus outros scripts
-# Exemplo:
-# @app.post("/processar/relatorio", tags=["Processamento"])
+class ProcessRequest(BaseModel):
+    file_id: str
+
+def run_processing_financeiro(file_id: str):
+    """Função que executa o processamento FINANCEIRO em background."""
+    # Inicializa um cliente supabase e logger para este processo
+    supabase_processor = init_processor_supabase()
+    logger = SupabaseLogger(supabase_processor)
+
+    try:
+        # 1. Buscar detalhes do arquivo no banco
+        response = supabase_processor.table('received_files').select('storage_path, account_id').eq('id', file_id).single().execute()
+        record = response.data
+        if not record:
+            logger.log("ERROR", f"Registro de arquivo com ID {file_id} não encontrado.")
+            logger.flush()
+            return
+
+        storage_path = record.get('storage_path')
+        account_id = record.get('account_id')
+        bucket_name = storage_path.split('/')[0]
+        path_in_bucket = '/'.join(storage_path.split('/')[1:])
+
+        # 2. Baixar o arquivo do Supabase Storage
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+            file_content = supabase_processor.storage.from_(bucket_name).download(path=path_in_bucket)
+            tmp_file.write(file_content)
+            temp_file_path = tmp_file.name
+
+        # 3. Chamar a função de processamento financeiro
+        processar_relatorio_financeiro(supabase_processor, logger, temp_file_path, file_id, account_id)
+
+    except Exception as e:
+        error_message = f"Erro no processamento em background para file_id {file_id}: {e}"
+        logger.log("CRITICAL", error_message, context={"traceback": traceback.format_exc()})
+    finally:
+        # 4. Limpar o arquivo temporário e o logger
+        if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+        logger.flush()
+
+
+@app.post("/processar-planilha-financeiro", tags=["Processamento"], summary="Inicia o processamento de uma planilha FINANCEIRA em background")
+async def processar_planilha_financeiro_endpoint(process_request: ProcessRequest, background_tasks: BackgroundTasks):
+    """
+    [FINANCEIRO] Recebe um `file_id` e agenda o processamento da planilha financeira correspondente em background.
+    Retorna uma resposta imediata de sucesso.
+    """
+    background_tasks.add_task(run_processing_financeiro, process_request.file_id)
+    return {"message": "Processamento da planilha financeira agendado com sucesso!", "file_id": process_request.file_id}
+
+# Adicione aqui outros endpoints para processar outros tipos de planilha, como conciliação, conforme necessário.
 # def processar_relatorio(file_id: str):
 #     from scripts.process_report import processar
 #     resultado = processar(file_id)
