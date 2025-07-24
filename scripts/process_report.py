@@ -233,18 +233,26 @@ def save_sales_data(logger: SupabaseLogger, supabase: Client, df: pd.DataFrame, 
     ]
 
     def create_upsert_key(row):
+        import hashlib
         try:
-            # Tenta criar a chave composta se 'pedido_id_completo' for válido.
+            # Ocorrência avulsa: gera chave determinística baseada em campos essenciais
+            if str(row.get('tipo_de_faturamento', '')).strip().lower() == 'ocorrência avulsa':
+                base = (
+                    str(row.get('account_id', '')) + '|' +
+                    str(row.get('loja_id', '')) + '|' +
+                    str(row.get('data_do_pedido_ocorrencia', '')) + '|' +
+                    str(row.get('valor_ocorrencia', '')) + '|' +
+                    str(row.get('tipo_de_faturamento', ''))
+                )
+                return hashlib.md5(base.encode('utf-8')).hexdigest()
+            # Caso padrão: pedido normal, usa pedido_id_completo se disponível
             if pd.notna(row.get('pedido_id_completo')) and str(row.get('pedido_id_completo')).strip() != '':
                 unique_parts = [str(row.get(col, '')) for col in key_cols]
                 base_key = '_'.join(unique_parts)
                 # Anexa o índice da linha para garantir unicidade absoluta no lote.
                 return f"{base_key}_{row.name}"
         except Exception:
-            # Se qualquer erro ocorrer durante a criação da chave composta, não interrompe o processo.
-            # A função continuará para o fallback de UUID.
             pass
-
         # Fallback definitivo: Se a lógica acima falhar ou não for aplicável,
         # gera um UUID único para garantir que a inserção não falhe por chave nula.
         key = uuid.uuid4().hex
