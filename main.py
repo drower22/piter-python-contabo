@@ -131,11 +131,14 @@ async def upload_planilha_url(
             file_options={"cache-control": "3600", "upsert": "true"}
         )
 
+        # O path retornado deve ser o LÓGICO, que será salvo no banco de dados.
+        storage_path_for_db = f"{tipo}/{user_id}/{filename}"
+
         return JSONResponse(
             status_code=200,
             content={
                 "message": f"Upload realizado com sucesso via URL para {tipo}!",
-                "path": path_in_bucket
+                "path": storage_path_for_db
             }
         )
     except Exception as e:
