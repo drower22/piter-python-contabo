@@ -55,7 +55,7 @@ async def upload_planilha(
     """
     try:
         bucket_name = "financeiro"
-        path_in_bucket = f"{bucket_name}/{user_id}/{filename}"
+        path_in_bucket = f"{user_id}/{filename}"
 
         # Lê o conteúdo do arquivo em bytes
         contents = await file.read()
@@ -68,7 +68,7 @@ async def upload_planilha(
         )
 
         # Salve o storage_path com a estrutura correta para uso futuro
-        storage_path = f"{bucket_name}/{path_in_bucket}"
+        storage_path = path_in_bucket
 
         return JSONResponse(
             status_code=200,
@@ -111,7 +111,7 @@ async def upload_planilha_url(
         if tipo not in ["financeiro", "conciliacao"]:
             return JSONResponse(status_code=400, content={"error": "Tipo inválido. Use 'financeiro' ou 'conciliacao'."})
         bucket_name = tipo  # bucket = financeiro ou conciliacao
-        path_in_bucket = f"{bucket_name}/{user_id}/{filename}"
+        path_in_bucket = f"{user_id}/{filename}"
 
         # Busca o header Authorization, se enviado
         headers = {}
