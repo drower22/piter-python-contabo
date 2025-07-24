@@ -68,7 +68,7 @@ async def upload_planilha(
         )
 
         # Salve o storage_path com a estrutura correta para uso futuro
-        storage_path = path_in_bucket
+        storage_path = f"financeiro/{user_id}/{filename}"
 
         return JSONResponse(
             status_code=200,
