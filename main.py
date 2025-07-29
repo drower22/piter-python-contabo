@@ -91,6 +91,7 @@ import os
 # Importa a lógica de processamento do script
 # Este endpoint é EXCLUSIVO para o processamento do relatório financeiro do iFood.
 from scripts.process_report import processar_relatorio_financeiro, init_supabase_client as init_processor_supabase, SupabaseLogger
+from scripts.process_conciliation import processar_relatorio_conciliacao
 
 
 @app.post("/upload/planilha-url", tags=["Uploads"], summary="Faz upload de uma planilha a partir de uma URL para o Supabase Storage")
@@ -239,8 +240,59 @@ async def processar_planilha_financeiro_endpoint(process_request: ProcessRequest
     background_tasks.add_task(run_processing_financeiro, process_request.file_id)
     return {"message": "Processamento da planilha financeira agendado com sucesso!", "file_id": process_request.file_id}
 
-# Adicione aqui outros endpoints para processar outros tipos de planilha, como conciliação, conforme necessário.
-# def processar_relatorio(file_id: str):
-#     from scripts.process_report import processar
-#     resultado = processar(file_id)
-#     return {"resultado": resultado}
+def run_processing_conciliacao(file_id: str):
+    """Função que executa o processamento de CONCILIAÇÃO em background."""
+    supabase_processor = None
+    logger = None
+    try:
+        # 1. Inicializar cliente Supabase e Logger para o processo em background
+        supabase_processor = init_processor_supabase()
+        logger = SupabaseLogger(supabase_processor)
+        logger.log("INFO", f"Iniciando processamento de conciliação em background para file_id: {file_id}")
+
+        # Obter account_id e storage_path do banco de dados
+        response = supabase_processor.table('received_files').select('account_id, storage_path').eq('id', file_id).single().execute()
+        if not response.data:
+            logger.log("CRITICAL", f"Nenhum registro encontrado para file_id {file_id} em received_files.")
+            return
+
+        account_id = response.data.get('account_id')
+        storage_path = response.data.get('storage_path')
+
+        if not account_id or not storage_path:
+            logger.log("CRITICAL", f"'account_id' ou 'storage_path' está faltando para o file_id {file_id}.")
+            return
+
+        clean_storage_path = storage_path.lstrip('/')
+        path_parts = clean_storage_path.split('/')
+        bucket_name = path_parts[0]
+        path_in_bucket = '/'.join(path_parts[1:])
+
+        # 2. Baixar o arquivo do Supabase Storage
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+            file_content = supabase_processor.storage.from_(bucket_name).download(path=path_in_bucket)
+            tmp_file.write(file_content)
+            temp_file_path = tmp_file.name
+
+        # 3. Chamar a função de processamento de conciliação
+        processar_relatorio_conciliacao(supabase_processor, logger, temp_file_path, file_id, account_id)
+
+    except Exception as e:
+        error_message = f"Erro no processamento de conciliação em background para file_id {file_id}: {e}"
+        if logger:
+            logger.log("CRITICAL", error_message, context={"traceback": traceback.format_exc()})
+    finally:
+        # 4. Limpar o arquivo temporário e o logger
+        if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+        if logger:
+            logger.flush()
+
+@app.post("/processar-planilha-conciliacao", tags=["Processamento"], summary="Inicia o processamento de uma planilha de CONCILIAÇÃO em background")
+async def processar_planilha_conciliacao_endpoint(process_request: ProcessRequest, background_tasks: BackgroundTasks):
+    """
+    [CONCILIAÇÃO] Recebe um `file_id` e agenda o processamento da planilha de conciliação correspondente em background.
+    Retorna uma resposta imediata de sucesso.
+    """
+    background_tasks.add_task(run_processing_conciliacao, process_request.file_id)
+    return {"message": "Processamento da planilha de conciliação agendado com sucesso!", "file_id": process_request.file_id}
