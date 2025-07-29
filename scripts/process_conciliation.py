@@ -110,24 +110,40 @@ def parse_percent(value):
 def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
     logger.log('info', f"Iniciando leitura do arquivo de conciliação: {file_path}")
     try:
-        # Lógica robusta para selecionar a aba correta
+        # Lógica de busca ativa pela aba correta
         xls = pd.ExcelFile(file_path)
         sheet_names = xls.sheet_names
         logger.log('info', f'Abas encontradas no arquivo: {sheet_names}')
 
-        sheet_to_read = 0  # Padrão: primeira aba
-        if len(sheet_names) > 1:
-            # Se houver mais de uma aba, usa a segunda (índice 1)
-            sheet_to_read = 1
-            logger.log('info', 'Múltiplas abas encontradas. Lendo a segunda aba (índice 1).')
-        else:
-            logger.log('info', 'Apenas uma aba encontrada. Lendo a primeira aba (índice 0).')
+        df = None
+        correct_sheet_name = None
 
-        df = pd.read_excel(file_path, dtype=str, sheet_name=sheet_to_read)
-        logger.log('info', f"{len(df)} linhas brutas lidas da aba selecionada.")
+        # Lista de colunas essenciais para identificar a aba correta
+        key_columns = ['competencia', 'data_fato_gerador', 'fato_gerador', 'valor']
 
-        df.columns = [c.lower().strip().replace(' ', '_') for c in df.columns]
+        for sheet_name in sheet_names:
+            try:
+                temp_df = pd.read_excel(xls, sheet_name=sheet_name, dtype=str)
+                # Normaliza as colunas do dataframe temporário para verificação
+                temp_df.columns = [c.lower().strip().replace(' ', '_') for c in temp_df.columns]
+                
+                # Verifica se as colunas-chave existem nesta aba
+                if all(col in temp_df.columns for col in key_columns):
+                    df = temp_df
+                    correct_sheet_name = sheet_name
+                    logger.log('info', f'Aba correta encontrada: "{correct_sheet_name}". Usando esta aba para o processamento.')
+                    break # Para a busca assim que encontrar a aba certa
+            except Exception as e:
+                logger.log('warning', f'Não foi possível ler a aba "{sheet_name}". Erro: {e}')
+                continue
+
+        if df is None:
+            error_msg = "Nenhuma aba com as colunas esperadas foi encontrada no arquivo."
+            logger.log('error', error_msg)
+            raise ValueError(error_msg)
+
         logger.log('info', f'Nomes de colunas normalizados: {list(df.columns)}')
+
 
         # Validação de colunas
         missing_cols = [col for col in EXPECTED_COLUMNS if col not in df.columns]
