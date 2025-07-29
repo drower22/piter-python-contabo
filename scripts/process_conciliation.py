@@ -110,10 +110,21 @@ def parse_percent(value):
 def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
     logger.log('info', f"Iniciando leitura do arquivo de conciliação: {file_path}")
     try:
-        # Lê a segunda aba da planilha (índice 1), que contém os dados de conciliação.
-        # Esta abordagem é mais robusta do que depender do nome exato da aba.
-        df = pd.read_excel(file_path, dtype=str, sheet_name=1)
-        logger.log('info', f"{len(df)} linhas brutas lidas do arquivo na segunda aba.")
+        # Lógica robusta para selecionar a aba correta
+        xls = pd.ExcelFile(file_path)
+        sheet_names = xls.sheet_names
+        logger.log('info', f'Abas encontradas no arquivo: {sheet_names}')
+
+        sheet_to_read = 0  # Padrão: primeira aba
+        if len(sheet_names) > 1:
+            # Se houver mais de uma aba, usa a segunda (índice 1)
+            sheet_to_read = 1
+            logger.log('info', 'Múltiplas abas encontradas. Lendo a segunda aba (índice 1).')
+        else:
+            logger.log('info', 'Apenas uma aba encontrada. Lendo a primeira aba (índice 0).')
+
+        df = pd.read_excel(file_path, dtype=str, sheet_name=sheet_to_read)
+        logger.log('info', f"{len(df)} linhas brutas lidas da aba selecionada.")
 
         df.columns = [c.lower().strip().replace(' ', '_') for c in df.columns]
         logger.log('info', f'Nomes de colunas normalizados: {list(df.columns)}')
