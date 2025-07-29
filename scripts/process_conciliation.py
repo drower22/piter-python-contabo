@@ -110,8 +110,9 @@ def parse_percent(value):
 def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
     logger.log('info', f"Iniciando leitura do arquivo de conciliação: {file_path}")
     try:
-        df = pd.read_excel(file_path, dtype=str)
-        logger.log('info', f"{len(df)} linhas brutas lidas do arquivo.")
+        # Lê explicitamente a aba 'Relatório de Conciliação'
+        df = pd.read_excel(file_path, dtype=str, sheet_name="Relatório de Conciliação")
+        logger.log('info', f"{len(df)} linhas brutas lidas do arquivo na aba 'Relatório de Conciliação'.")
 
         df.columns = [c.lower().strip().replace(' ', '_') for c in df.columns]
         logger.log('info', f'Nomes de colunas normalizados: {list(df.columns)}')
