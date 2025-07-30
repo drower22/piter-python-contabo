@@ -309,5 +309,5 @@ async def processar_planilha_conciliacao_endpoint(process_request: ProcessReques
     [CONCILIAÇÃO] Recebe um `file_id` e agenda o processamento da planilha de conciliação correspondente em background.
     Retorna uma resposta imediata de sucesso.
     """
-    background_tasks.add_task(run_processing_conciliacao, process_request.file_id)
+    background_tasks.add_task(run_processing_conciliacao, process_request.file_id, process_request.storage_path)
     return {"message": "Processamento da planilha de conciliação agendado com sucesso!", "file_id": process_request.file_id}
