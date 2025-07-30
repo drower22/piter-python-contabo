@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 import argparse
 
 # Importa utilitários do script de relatório, que serve como base
-from .process_report import SupabaseLogger, init_supabase_client, update_file_status
+from scripts.process_report import SupabaseLogger, init_supabase_client, update_file_status
 
 # --- Configuração do .env ---
 script_dir = os.path.dirname(os.path.abspath(__file__))
