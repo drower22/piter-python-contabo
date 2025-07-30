@@ -275,7 +275,7 @@ def run_processing_conciliacao(file_id: str, storage_path: str):
         del file_content  # Limpa o conteúdo binário da memória
 
         # ETAPA 3: PROCESSAMENTO COM LOGGER SEGURO
-        logger = SupabaseLogger(supabase_processor, "conciliation_logs")
+        logger = SupabaseLogger(supabase_processor)
         logger.set_context(file_id=file_id, account_id=account_id)
         
         logger.log('INFO', f'Iniciando processamento para o arquivo ID: {file_id}. Arquivo temporário em: {temp_file_path}')
