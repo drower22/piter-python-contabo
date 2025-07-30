@@ -199,15 +199,18 @@ def process_conciliation_file(file_path: str, file_id: str, account_id: str):
 
 # --- Ponto de Entrada (CLI) ---
 
-def main():
-    """Função principal para execução via linha de comando."""
-    parser = argparse.ArgumentParser(description='Processa um arquivo de conciliação do iFood.')
-    parser.add_argument('--filepath', required=True, help='Caminho para o arquivo a ser processado.')
-    parser.add_argument('--file_id', required=True, help='ID do arquivo no sistema.')
-    parser.add_argument('--account_id', required=True, help='ID da conta associada.')
-    args = parser.parse_args()
-
-    process_conciliation_file(args.filepath, args.file_id, args.account_id)
+import argparse
+import json
 
 if __name__ == '__main__':
-    main()
+    try:
+        parser = argparse.ArgumentParser(description='Processa planilha de conciliação do iFood.')
+        parser.add_argument('--filepath', required=True, help='Caminho do arquivo a ser processado.')
+        parser.add_argument('--file_id', required=True, help='ID do arquivo no sistema.')
+        parser.add_argument('--account_id', required=True, help='ID da conta associada.')
+        args = parser.parse_args()
+        process_conciliation_file(args.filepath, args.file_id, args.account_id)
+    except Exception as e:
+        print(f"[PROC_CONCILIATION_CRITICAL] Erro fatal na inicialização do script: {e}", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
