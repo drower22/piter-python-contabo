@@ -143,10 +143,7 @@ def process_conciliation_file(file_path: str, file_id: str, account_id: str):
         logger.log("INFO", f"Iniciando processamento do arquivo: {file_path}")
         update_file_status(logger, supabase_client, file_id, 'processing')
 
-        with open(file_path, 'rb') as f:
-            file_content = f.read()
-        
-        df = _read_and_prepare_conciliation_df(file_content, logger)
+        df = read_and_clean_conciliation_data(logger, file_path)
         logger.log('info', f'[DIAGNÓSTICO] Passo 1: {len(df) if df is not None else 0} linhas lidas do Excel.')
         if df is not None and not df.empty:
             logger.log('info', f'[AMOSTRA DADOS] Após leitura inicial:\n{df.head(6).to_string()}')
@@ -200,9 +197,12 @@ def process_conciliation_file(file_path: str, file_id: str, account_id: str):
 
     except Exception as e:
         error_message = f"Erro inesperado no processamento da conciliação: {e}"
-        logger.log('error', error_message, traceback.format_exc())
+        tb_str = traceback.format_exc()
+        logger.log('error', error_message, {'traceback': tb_str})
         if supabase_client:
-            update_file_status(logger, supabase_client, file_id, 'error', error_message, traceback.format_exc())
+            # Concatena a mensagem e o traceback para o campo 'details'
+            details = f"{error_message}\n\nTraceback:\n{tb_str}"
+            update_file_status(logger, supabase_client, file_id, 'error', details)
         print(json.dumps({"status": "error", "file_id": file_id, "error": str(e)}))
     finally:
         if os.path.exists(file_path):
