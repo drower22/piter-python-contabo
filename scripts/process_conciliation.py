@@ -3,6 +3,13 @@ import io
 import numpy as np
 import sys
 import os
+
+# --- Solução Definitiva para o Problema de Módulo ---
+# Adiciona o diretório raiz do projeto ao sys.path para que as importações de módulos funcionem
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 import datetime
 import json
 import traceback
