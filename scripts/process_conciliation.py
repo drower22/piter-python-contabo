@@ -1,252 +1,209 @@
-import pandas as pd
-import io
-import numpy as np
-import sys
-import os
-
-# --- Solução Definitiva para o Problema de Módulo ---
-# Adiciona o diretório raiz do projeto ao sys.path para que as importações de módulos funcionem
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-import datetime
+import argparse
 import json
+import os
+import sys
 import traceback
 import uuid
-from supabase import Client
-from dotenv import load_dotenv
-import argparse
 
-# Importa utilitários do script de relatório, que serve como base
-from scripts.process_report import SupabaseLogger, init_supabase_client, update_file_status
+import pandas as pd
+from supabase import Client, create_client
 
-# --- Configuração do .env ---
-script_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(script_dir)
-dotenv_path = os.path.join(project_root, '.env')
-load_dotenv(dotenv_path=dotenv_path)
+# Adiciona o diretório raiz ao path para resolver importações, se necessário
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.append(project_root)
 
-# --- Constantes do Schema ---
-TABLE_CONCILIATION_DATA = 'conciliation_data'
-TABLE_RECEIVED_FILES = 'received_files' # Usado por update_file_status
+# --- Constantes ---
+TABLE_LOGS = 'logs'
+TABLE_CONCILIATION = 'ifood_conciliation'
+TABLE_FILES = 'files'
 
-# --- Funções de Parsing Específicas para Conciliação ---
+# Mapeamento exato das colunas do Excel para as colunas da tabela
+COLUMNS_MAPPING = {
+    'Data da Venda': 'sale_date',
+    'ID do Pedido': 'order_id',
+    'Tipo de Lançamento': 'transaction_type',
+    'Descrição do Lançamento': 'transaction_description',
+    'Valor Bruto': 'gross_value',
+    'Valor da Entrega': 'delivery_fee',
+    'Valor da Transação': 'transaction_value',
+    'Valor da Taxa de Serviço': 'service_fee',
+    'Valor da Taxa de Pagamento': 'payment_fee',
+    'Outros Lançamentos': 'other_fees',
+    'Valor Líquido': 'net_value',
+    'ID da Transação': 'transaction_id',
+    'ID do Lançamento': 'entry_id',
+    'Data do Repasse': 'payment_date',
+    'Status do Pagamento': 'payment_status',
+    'Tipo de Pagamento': 'payment_method',
+    'Bandeira do Cartão': 'card_brand'
+}
 
-def parse_brazilian_currency(value):
-    if pd.isna(value) or value in ['-', '']:
-        return None
+# --- Funções e Classes de Suporte (Isoladas para evitar dependências externas) ---
+
+class SupabaseLogger:
+    """Classe de logger para enviar logs para o Supabase de forma isolada."""
+    def __init__(self, supabase_client: Client):
+        self.supabase = supabase_client
+        self.file_id = None
+        self.account_id = None
+
+    def set_context(self, file_id: str, account_id: str):
+        self.file_id = file_id
+        self.account_id = account_id
+
+    def log(self, level: str, message: str, context: dict = None):
+        try:
+            payload = {
+                "level": level.upper(),
+                "message": message,
+                "file_id": self.file_id,
+                "account_id": self.account_id,
+                "context": context or {},
+                "source": "process_conciliation"
+            }
+            print(f"[LOG-{level.upper()}] {message}") # Log local para depuração imediata
+            self.supabase.table(TABLE_LOGS).insert(payload).execute()
+        except Exception as e:
+            print(f"[CRITICAL] Falha ao enviar log para o Supabase: {e}", file=sys.stderr)
+
+def init_supabase_client() -> Client:
+    """Inicializa e retorna um cliente Supabase."""
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
+    if not url or not key:
+        raise ValueError("Variáveis de ambiente SUPABASE_URL e SUPABASE_KEY são obrigatórias.")
+    return create_client(url, key)
+
+def update_file_status(logger: SupabaseLogger, supabase_client: Client, file_id: str, status: str, details: str = None):
+    """Atualiza o status de um arquivo na tabela 'files'."""
     try:
-        cleaned_value = str(value).replace('R$', '').strip().replace('.', '').replace(',', '.')
-        return float(cleaned_value)
-    except (ValueError, TypeError):
-        return None
-
-def parse_percent(value):
-    if pd.isna(value) or value in ['-', '']:
-        return None
-    try:
-        return str(value).strip()
-    except Exception:
-        return None
-
-# --- Funções de Processamento de Dados ---
-
-def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Converte os nomes das colunas para um formato padronizado."""
-    df.columns = [c.lower().strip().replace(' ', '_') for c in df.columns]
-    return df
-
-def _find_conciliation_sheet(logger: SupabaseLogger, xls: pd.ExcelFile) -> pd.DataFrame:
-    """Lê a segunda aba do arquivo (índice 1) e a valida."""
-    sheet_names = xls.sheet_names
-    logger.log('info', f'Abas encontradas no arquivo: {sheet_names}')
-    
-    if len(sheet_names) < 2:
-        raise ValueError(f"O arquivo precisa ter pelo menos 2 abas, mas só tem {len(sheet_names)}.")
-
-    target_sheet_name = sheet_names[1] # Pega a segunda aba
-    logger.log('info', f'Lendo dados da segunda aba: "{target_sheet_name}"')
-    df = pd.read_excel(xls, sheet_name=target_sheet_name, dtype=str)
-    logger.log('info', f'Passo 1: Lidas {len(df)} linhas do arquivo Excel.')
-
-    df = _normalize_columns(df)
-    logger.log('info', f'Colunas normalizadas da aba "{target_sheet_name}": {list(df.columns)}')
-    
-    # Adicione aqui uma verificação de colunas essenciais, se necessário
-    return df
-
-def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
-    """Lê o arquivo Excel, encontra a aba correta, e aplica limpeza inicial."""
-    logger.log('info', f"Iniciando leitura e limpeza do arquivo de conciliação: {file_path}")
-    try:
-        with open(file_path, 'rb') as f:
-            file_content_bytes = f.read()
+        update_data = {"status": status}
+        if details:
+            update_data['details'] = details
         
-        with pd.ExcelFile(io.BytesIO(file_content_bytes), engine='openpyxl') as xls:
-            df = _find_conciliation_sheet(logger, xls)
-
-        if df is None or df.empty:
-            raise ValueError("Nenhuma aba de conciliação válida foi encontrada ou a aba está vazia.")
-
-        # Aplicar conversões de tipo
-        if 'valor' in df.columns:
-            df['valor'] = df['valor'].apply(parse_brazilian_currency)
-        if 'base_calculo' in df.columns:
-            df['base_calculo'] = df['base_calculo'].apply(parse_brazilian_currency)
-        if 'percentual_taxa' in df.columns:
-            df['percentual_taxa'] = df['percentual_taxa'].apply(parse_percent)
-        
-        # Converte colunas de data
-        date_columns = ['data_fato_gerador', 'data_criacao_pedido_associado', 'data_repasse_esperada', 'data_faturamento', 'data_apuracao_inicio', 'data_apuracao_fim']
-        for col in date_columns:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
-
-        logger.log('info', f'Limpeza e conversão de tipos concluída. {len(df)} linhas prontas para salvar.')
-        return df
-
+        supabase_client.table(TABLE_FILES).update(update_data).eq('id', file_id).execute()
+        logger.log('info', f"Status do arquivo {file_id} atualizado para '{status}'.")
     except Exception as e:
-        logger.log('error', f'Falha ao ler ou limpar os dados de conciliação: {e}')
+        logger.log('error', f"Falha ao atualizar status do arquivo {file_id}: {e}")
+
+# --- Funções de Processamento ---
+
+def read_and_clean_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
+    """Lê a segunda aba de um arquivo Excel, remove a primeira linha e renomeia as colunas."""
+    try:
+        logger.log('info', 'Iniciando leitura do arquivo Excel.')
+        # sheet_name=1 para ler a segunda aba, header=0 para usar a primeira linha como cabeçalho
+        df = pd.read_excel(file_path, sheet_name=1, header=0, engine='openpyxl')
+        logger.log('info', f'{len(df)} linhas lidas do arquivo.')
+        
+        # Renomeia as colunas com base no mapeamento
+        df.rename(columns=COLUMNS_MAPPING, inplace=True)
+        logger.log('info', 'Colunas renomeadas com sucesso.')
+        logger.log('debug', f'Colunas após renomear: {df.columns.tolist()}')
+        
+        # Garante que apenas as colunas mapeadas existam
+        df = df[list(COLUMNS_MAPPING.values())]
+        logger.log('info', f'DataFrame finalizado com {len(df.columns)} colunas.')
+        return df
+    except Exception as e:
+        logger.log('error', f'Falha ao ler ou limpar os dados do Excel: {e}')
         raise
 
 def safe_to_json(row, logger):
-    """Tenta converter uma linha do DataFrame para JSON, registrando erros de encoding sem quebrar o processo."""
+    """Converte uma linha para JSON de forma segura, tratando erros de encoding."""
     try:
         return row.to_json(date_format='iso', force_ascii=False)
-    except UnicodeDecodeError as e:
+    except Exception as e:
         safe_dict = {}
-        for k, v in row.items():
+        for k, v in row.to_dict().items():
             try:
                 safe_dict[k] = str(v).encode('utf-8', 'ignore').decode('utf-8')
             except Exception:
                 safe_dict[k] = "[DADO ILEGÍVEL]"
         
-        error_message = f"Falha de encoding ao converter linha para JSON. Erro: {e}"
-        logger.log('error', error_message, {'problematic_row_data': safe_dict})
-        
+        error_message = f"Falha de encoding ao serializar linha. Erro: {e}"
+        logger.log('warning', error_message, {'problematic_row_data': safe_dict})
         return json.dumps({"error": error_message, "original_data_cleaned": safe_dict})
 
-def _save_conciliation_data(supabase_client: Client, df: pd.DataFrame, account_id: str, received_file_id: str, logger: SupabaseLogger):
-    """Salva um DataFrame limpo de dados de conciliação no Supabase."""
-    try:
-        logger.log('info', f'Iniciando salvamento de {len(df)} registros.')
+def save_data_in_batches(logger: SupabaseLogger, supabase_client: Client, df: pd.DataFrame, account_id: str, file_id: str):
+    """Prepara e salva os dados no Supabase em lotes."""
+    logger.log('info', f'Iniciando preparação de {len(df)} registros para salvamento.')
+    
+    df['account_id'] = account_id
+    df['received_file_id'] = file_id
+    df['id'] = [str(uuid.uuid4()) for _ in range(len(df))]
+    
+    logger.log('info', 'Iniciando serialização segura para JSON (raw_data).')
+    df['raw_data'] = df.apply(lambda row: safe_to_json(row, logger), axis=1)
+    logger.log('info', 'Serialização concluída.')
 
-        # --- Limpeza de Encoding ---
-        # Força a conversão de todas as colunas de texto para UTF-8, tratando erros.
-        for col in df.select_dtypes(include=['object']).columns:
-            df[col] = df[col].astype(str).apply(lambda x: x.encode('utf-8', 'ignore').decode('utf-8'))
-        logger.log('info', 'Limpeza de encoding de caracteres concluída.')
-        # --------------------------
+    records_to_insert = df.to_dict(orient='records')
+    
+    batch_size = 100
+    for i in range(0, len(records_to_insert), batch_size):
+        batch = records_to_insert[i:i + batch_size]
+        try:
+            logger.log('info', f'Salvando lote {i // batch_size + 1} com {len(batch)} registros.')
+            supabase_client.table(TABLE_CONCILIATION).upsert(batch, on_conflict='entry_id').execute()
+        except Exception as e:
+            logger.log('error', f'Falha ao salvar lote de dados: {e}')
+            raise
+    logger.log('info', 'Todos os lotes foram salvos com sucesso.')
 
-        df['account_id'] = account_id
-        df['received_file_id'] = received_file_id
-        df['id'] = [uuid.uuid4() for _ in range(len(df))]
-        
-        logger.log('info', 'Iniciando serialização segura para JSON linha a linha.')
-        df['raw_data'] = df.apply(lambda row: safe_to_json(row, logger), axis=1)
-        logger.log('info', 'Serialização para JSON concluída.')
-
-        records_to_upsert = df.to_dict(orient='records')
-        
-        batch_size = 200
-        for i in range(0, len(records_to_upsert), batch_size):
-            batch = records_to_upsert[i:i + batch_size]
-            for record in batch:
-                for key, value in record.items():
-                    if isinstance(value, (datetime.datetime, datetime.date)):
-                        record[key] = value.isoformat()
-            supabase_client.table(TABLE_CONCILIATION_DATA).insert(batch).execute()
-            logger.log('info', f'Lote de {len(batch)} registros salvo com sucesso.')
-    except Exception as e:
-        logger.log('error', f'Erro ao salvar dados de conciliação: {e}')
-        raise # Propaga o erro para o bloco principal
+# --- Orquestrador Principal ---
 
 def process_conciliation_file(file_path: str, file_id: str, account_id: str):
-    """Orquestra o processo completo de leitura, limpeza e salvamento dos dados de conciliação."""
-    supabase_client = init_supabase_client()
-    logger = SupabaseLogger(supabase_client)
-    logger.set_context(file_id=file_id, account_id=account_id)
+    """Orquestra o processo completo de ponta a ponta."""
+    supabase_client = None
+    logger = None
     try:
-        logger.log("INFO", f"Iniciando processamento do arquivo: {file_path}")
+        supabase_client = init_supabase_client()
+        logger = SupabaseLogger(supabase_client)
+        logger.set_context(file_id=file_id, account_id=account_id)
+
+        logger.log('info', f'Iniciando processamento do arquivo de conciliação: {file_path}')
         update_file_status(logger, supabase_client, file_id, 'processing')
 
-        df = read_and_clean_conciliation_data(logger, file_path)
-        logger.log('info', f'[DIAGNÓSTICO] Passo 1: {len(df) if df is not None else 0} linhas lidas do Excel.')
-        if df is not None and not df.empty:
-            logger.log('info', f'[AMOSTRA DADOS] Após leitura inicial:\n{df.head(6).to_string()}')
-
-        if df is None or df.empty:
-            logger.log('warning', 'Nenhum dado lido do arquivo. Processamento encerrado.')
-            update_file_status(logger, supabase_client, file_id, 'processed', 'Arquivo vazio ou em formato inesperado.')
-            return
-
-        df = df.iloc[1:].copy()
-        logger.log('info', f'[DIAGNÓSTICO] Passo 2: {len(df)} linhas após remover cabeçalho.')
-
-        # Define os nomes corretos das colunas para alinhar com a tabela do Supabase
-        column_names = [
-            'competencia', 'data_fato_gerador', 'fato_gerador', 'tipo_lancamento',
-            'descricao_lancamento', 'valor', 'base_calculo', 'percentual_taxa',
-            'pedido_associado_ifood', 'pedido_associado_ifood_curto', 'pedido_associado_externo',
-            'motivo_cancelamento', 'descricao_ocorrencia', 'data_criacao_pedido_associado',
-            'data_repasse_esperada', 'valor_transacao', 'loja_id', 'loja_id_curto',
-            'loja_id_externo', 'cnpj', 'titulo', 'data_faturamento',
-            'data_apuracao_inicio', 'data_apuracao_fim', 'valor_cesta_inicial',
-            'valor_cesta_final', 'responsavel_transacao', 'canal_vendas',
-            'impacto_no_repasse', 'parcela_pagamento'
-        ]
-        df.columns = column_names
-        logger.log('info', 'Colunas do DataFrame renomeadas para corresponder à tabela.')
-
-        if not df.empty:
-            logger.log('info', f'[AMOSTRA DADOS] Após renomear colunas:\n{df.head(6).to_string()}')
-
-        df.dropna(how='all', inplace=True)
-        logger.log('info', f'[DIAGNÓSTICO] Passo 3: {len(df)} linhas após remover linhas vazias.')
-        if not df.empty:
-            logger.log('info', f'[AMOSTRA DADOS] Após remover linhas vazias:\n{df.head(6).to_string()}')
-
-        if df.empty:
-            logger.log('warning', 'Nenhum dado restou após a limpeza. Nenhum registro será salvo.')
-            update_file_status(logger, supabase_client, file_id, 'processed', 'Nenhum dado válido encontrado após limpeza.')
-            return
-
-        df.reset_index(drop=True, inplace=True)
-        logger.log('info', f'[DIAGNÓSTICO] Passo 4: {len(df)} registros prontos para salvar.')
-        if not df.empty:
-            logger.log('info', f'[AMOSTRA DADOS] Antes de salvar:\n{df.head(6).to_string()}')
-
-        _save_conciliation_data(supabase_client, df, account_id, file_id, logger)
+        df = read_and_clean_data(logger, file_path)
         
-        update_file_status(logger, supabase_client, file_id, 'processed')
-        logger.log("INFO", "Processamento do relatório de conciliação concluído com sucesso.")
-        print(json.dumps({"status": "success", "file_id": file_id}))
+        if df is not None and not df.empty:
+            save_data_in_batches(logger, supabase_client, df, account_id, file_id)
+            update_file_status(logger, supabase_client, file_id, 'completed')
+            logger.log('info', 'Processamento do arquivo concluído com sucesso.')
+        else:
+            update_file_status(logger, supabase_client, file_id, 'error', 'O arquivo Excel está vazio ou não contém dados na segunda aba.')
+            logger.log('warning', 'O DataFrame está vazio após a leitura. Nenhum dado para salvar.')
 
     except Exception as e:
-        error_message = f"Erro inesperado no processamento da conciliação: {e}"
+        error_message = f"Erro fatal no processamento: {e}"
         tb_str = traceback.format_exc()
-        logger.log('error', error_message, {'traceback': tb_str})
-        if supabase_client:
-            # Concatena a mensagem e o traceback para o campo 'details'
-            details = f"{error_message}\n\nTraceback:\n{tb_str}"
+        details = f"{error_message}\n\nTraceback:\n{tb_str}"
+        print(details, file=sys.stderr) # Log de erro crítico para o console
+        if logger and supabase_client:
+            logger.log('critical', error_message, {'traceback': tb_str})
             update_file_status(logger, supabase_client, file_id, 'error', details)
-        print(json.dumps({"status": "error", "file_id": file_id, "error": str(e)}))
     finally:
         if os.path.exists(file_path):
-            os.remove(file_path)
-            logger.log('info', f'Arquivo temporário {file_path} removido.')
+            try:
+                os.remove(file_path)
+                if logger:
+                    logger.log('info', f'Arquivo temporário {file_path} removido.')
+            except OSError as e:
+                if logger:
+                    logger.log('error', f'Falha ao remover arquivo temporário {file_path}: {e}')
 
-# --- Ponto de Entrada para Execução via Linha de Comando ---
+# --- Ponto de Entrada (CLI) ---
 
 def main():
-    parser = argparse.ArgumentParser(description="Processa um relatório de conciliação do iFood e salva no Supabase.")
-    parser.add_argument('--filepath', required=True, help='Caminho para o arquivo de conciliação .xlsx.')
-    parser.add_argument('--account-id', required=True, type=str, help='ID da conta (UUID).')
-    parser.add_argument('--file-id', required=True, type=str, help='ID do registro do arquivo (UUID).')
+    """Função principal para execução via linha de comando."""
+    parser = argparse.ArgumentParser(description='Processa um arquivo de conciliação do iFood.')
+    parser.add_argument('--filepath', required=True, help='Caminho para o arquivo a ser processado.')
+    parser.add_argument('--file_id', required=True, help='ID do arquivo no sistema.')
+    parser.add_argument('--account_id', required=True, help='ID da conta associada.')
     args = parser.parse_args()
 
     process_conciliation_file(args.filepath, args.file_id, args.account_id)
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
