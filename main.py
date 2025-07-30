@@ -284,31 +284,17 @@ def run_processing_conciliacao(file_id: str, storage_path: str):
         del file_content
         logger.log('INFO', f'Arquivo salvo temporariamente em: {temp_file_path}')
 
-        # Monta o comando para executar o script de conciliação em um subprocesso
-        script_path = os.path.join(os.path.dirname(__file__), 'scripts', 'process_conciliation.py')
-        command = [
-            sys.executable,
-            script_path,
-            '--filepath', temp_file_path,
-            '--account_id', str(account_id),
-            '--file_id', str(file_id)
-        ]
-        
-        logger.log('INFO', f'Executando comando: {" ".join(command)}')
+        # Chama diretamente a função de processamento, que agora faz parte da mesma aplicação
         update_file_status(logger, supabase_processor, file_id, 'processing')
-        logger.flush()
+        logger.log('INFO', 'Iniciando a execução direta da função de processamento de conciliação.')
 
-        # Executa o script e aguarda a conclusão
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        process_conciliation_file(
+            file_path=temp_file_path,
+            file_id=file_id,
+            account_id=account_id
+        )
 
-        # O status final ('processed' ou 'error') é definido pelo próprio script.
-        # Apenas logamos o resultado aqui para fins de depuração.
-        if result.returncode == 0:
-            logger.log('INFO', f'Script de conciliação executado com sucesso. Saída: {result.stdout}')
-        else:
-            logger.log('CRITICAL', f'Falha na execução do script de conciliação. Return code: {result.returncode}. Erro: {result.stderr}')
-            # O script já deve ter logado o erro, mas atualizamos o status como fallback.
-            update_file_status(logger, supabase_processor, file_id, 'error', result.stderr or "Erro desconhecido no subprocesso.")
+        logger.log('INFO', 'Função de processamento de conciliação concluída com sucesso.')
 
     except Exception as e:
         error_message = f"Erro no orquestrador de processamento de conciliação: {e}"
