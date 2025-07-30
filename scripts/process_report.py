@@ -49,6 +49,7 @@ class SupabaseLogger:
             "file_id": self.file_id,
             "account_id": self.account_id,
             "context": context
+            # "source": "processor_script" # Coluna removida para compatibilidade com o DB
         }
         self.log_buffer.append(payload)
         if level.lower() in ["error", "critical", "warning"]:

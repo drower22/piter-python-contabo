@@ -20,23 +20,23 @@ TABLE_FILES = 'received_files'
 
 # Mapeamento exato das colunas do Excel para as colunas da tabela
 COLUMNS_MAPPING = {
-    'Data da Venda': 'sale_date',
-    'ID do Pedido': 'order_id',
-    'Tipo de Lançamento': 'transaction_type',
-    'Descrição do Lançamento': 'transaction_description',
-    'Valor Bruto': 'gross_value',
-    'Valor da Entrega': 'delivery_fee',
-    'Valor da Transação': 'transaction_value',
-    'Valor da Taxa de Serviço': 'service_fee',
-    'Valor da Taxa de Pagamento': 'payment_fee',
-    'Outros Lançamentos': 'other_fees',
-    'Valor Líquido': 'net_value',
-    'ID da Transação': 'transaction_id',
-    'ID do Lançamento': 'entry_id',
-    'Data do Repasse': 'payment_date',
-    'Status do Pagamento': 'payment_status',
-    'Tipo de Pagamento': 'payment_method',
-    'Bandeira do Cartão': 'card_brand'
+    'competencia': 'sale_date',
+    'pedido_associado_ifood': 'order_id',
+    'tipo_lancamento': 'transaction_type',
+    'descricao_lancamento': 'transaction_description',
+    'valor': 'gross_value',
+    # 'taxa_entrega': 'delivery_fee', # Coluna não presente no exemplo de log, comentar por segurança
+    'valor_transacao': 'transaction_value',
+    # 'taxa_servico': 'service_fee', # Coluna não presente no exemplo de log, comentar por segurança
+    # 'taxa_pagamento': 'payment_fee', # Coluna não presente no exemplo de log, comentar por segurança
+    # 'outras_taxas': 'other_fees', # Coluna não presente no exemplo de log, comentar por segurança
+    # 'valor_liquido': 'net_value', # Coluna não presente no exemplo de log, comentar por segurança
+    # 'id_transacao': 'transaction_id', # Coluna não presente no exemplo de log, comentar por segurança
+    # 'id_lancamento': 'entry_id', # Coluna não presente no exemplo de log, comentar por segurança
+    'data_repasse_esperada': 'payment_date',
+    'impacto_no_repasse': 'payment_status',
+    # 'metodo_pagamento': 'payment_method', # Coluna não presente no exemplo de log, comentar por segurança
+    # 'bandeira_cartao': 'card_brand' # Coluna não presente no exemplo de log, comentar por segurança
 }
 
 # --- Funções e Classes de Suporte (Isoladas para evitar dependências externas) ---
@@ -78,9 +78,9 @@ def init_supabase_client() -> Client:
 def update_file_status(logger: SupabaseLogger, supabase_client: Client, file_id: str, status: str, details: str = None):
     """Atualiza o status de um arquivo na tabela 'files'."""
     try:
-        update_data = {"status": status}
-        if details:
-            update_data['details'] = details
+        update_data = {'status': status}
+        # if error_message:
+        #     update_data['details'] = error_message # Coluna ainda não existe no DB
         
         supabase_client.table(TABLE_FILES).update(update_data).eq('id', file_id).execute()
         logger.log('info', f"Status do arquivo {file_id} atualizado para '{status}'.")
