@@ -244,16 +244,23 @@ async def processar_planilha_financeiro_endpoint(process_request: ProcessRequest
 
 def run_processing_conciliacao(file_id: str, storage_path: str):
     """Função segura que executa o processamento de CONCILIAÇÃO em background."""
-    supabase_processor = init_processor_supabase()
-    logger = SupabaseLogger(supabase_processor)
+    supabase_processor = None
+    logger = None
     temp_file_path = None
 
     try:
+        print(f"[CONCILIATION_TASK] Iniciando para file_id: {file_id}")
+        supabase_processor = init_processor_supabase()
+        logger = SupabaseLogger(supabase_processor)
+        print(f"[CONCILIATION_TASK] Logger inicializado. Buscando account_id...")
+
         # Busca o ID da conta associado ao arquivo.
         response = supabase_processor.table('received_files').select('account_id').eq('id', file_id).single().execute()
         if not response.data or not response.data.get('account_id'):
+            print(f"[CONCILIATION_TASK] ERRO: account_id não encontrado para file_id {file_id}. Resposta: {response.data}")
             raise ValueError(f"Metadados (account_id) para file_id {file_id} não encontrados.")
         account_id = response.data['account_id']
+        print(f"[CONCILIATION_TASK] account_id {account_id} encontrado com sucesso.")
 
         logger.set_context(file_id=file_id, account_id=account_id)
 
