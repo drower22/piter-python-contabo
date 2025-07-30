@@ -154,12 +154,16 @@ def save_data_in_batches(logger: SupabaseLogger, supabase_client: Client, df: pd
 # --- Orquestrador Principal ---
 
 def process_conciliation_file(file_path: str, file_id: str, account_id: str):
+    print(f"[PROC_CONCILIATION] Iniciando. file_id={file_id}, account_id={account_id}")
     """Orquestra o processo completo de ponta a ponta."""
     supabase_client = None
     logger = None
     try:
+        print("[PROC_CONCILIATION] Inicializando cliente Supabase...")
         supabase_client = init_supabase_client()
+        print("[PROC_CONCILIATION] Cliente Supabase inicializado. Inicializando logger...")
         logger = SupabaseLogger(supabase_client)
+        print("[PROC_CONCILIATION] Logger inicializado.")
         logger.set_context(file_id=file_id, account_id=account_id)
 
         logger.log('info', f'Iniciando processamento do arquivo de conciliação: {file_path}')
