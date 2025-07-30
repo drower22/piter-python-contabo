@@ -268,13 +268,24 @@ def run_processing_conciliacao(file_id: str):
         bucket_name = path_parts[0]
         path_in_bucket = '/'.join(path_parts[1:])
 
-        # 2. Baixar o arquivo do Supabase Storage
+        # 2. Baixar o conteúdo do arquivo do Supabase Storage
+        logger.log('INFO', f'Baixando arquivo de {bucket_name}/{path_in_bucket}')
+        file_content = supabase_processor.storage.from_(bucket_name).download(path=path_in_bucket)
+
+        # Passo de Diagnóstico: Salvar uma cópia exata do arquivo para inspeção
+        try:
+            debug_file_name = f"debug/conciliation-{account_id}-{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx"
+            supabase_processor.storage.from_("ifood-files").upload(file=file_content, path=debug_file_name, file_options={"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"})
+            logger.log('INFO', f'Arquivo de diagnóstico salvo em: {debug_file_name}')
+        except Exception as e:
+            logger.log('ERROR', f'Falha ao salvar arquivo de diagnóstico no Storage: {e}', context={"traceback": traceback.format_exc()})
+
+        # 3. Preparar arquivo temporário e chamar a função de processamento
         with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
-            file_content = supabase_processor.storage.from_(bucket_name).download(path=path_in_bucket)
             tmp_file.write(file_content)
             temp_file_path = tmp_file.name
-
-        # 3. Chamar a função de processamento de conciliação
+        
+        logger.log('INFO', f'Arquivo temporário criado em {temp_file_path}, iniciando processamento.')
         processar_relatorio_conciliacao(supabase_processor, logger, temp_file_path, file_id, account_id)
 
     except Exception as e:

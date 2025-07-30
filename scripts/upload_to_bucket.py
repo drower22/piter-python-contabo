@@ -38,13 +38,19 @@ def main():
 
         print(f"Iniciando upload de '{args.filepath}' para o caminho '{path_in_bucket}' no bucket '{bucket_name}'...")
 
+        # Define as opções do arquivo, incluindo o Content-Type correto para .xlsx
+        file_options = {"cache-control": "3600", "upsert": "true"}
+        if original_filename.endswith('.xlsx'):
+            file_options['content-type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            print(f"INFO: Content-Type para .xlsx definido como '{file_options['content-type']}'")
+
         with open(args.filepath, 'rb') as f:
             # A biblioteca supabase-py levanta uma exceção em caso de falha no upload.
             # Se nenhuma exceção for levantada, o upload foi bem-sucedido.
             supabase.storage.from_(bucket_name).upload(
                 path=path_in_bucket,
                 file=f,
-                file_options={"cache-control": "3600", "upsert": "true"}
+                file_options=file_options
             )
         
         print(f"SUCESSO: Arquivo enviado com sucesso para o caminho '{path_in_bucket}' no bucket '{bucket_name}'.")
