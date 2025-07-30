@@ -266,10 +266,14 @@ def run_processing_conciliacao(file_id: str, storage_path: str):
 
         # Faz o download do arquivo para um local temporário
         logger.log('INFO', f'Iniciando download do arquivo de conciliação: {storage_path}')
+        print(f"[CONCILIATION_TASK] Preparando para download. Storage path: {storage_path}")
         path_parts = storage_path.lstrip('/').split('/')
         bucket_name = path_parts[0]
         path_in_bucket = '/'.join(path_parts[1:])
+        print(f"[CONCILIATION_TASK] Tentando download do bucket: '{bucket_name}', path: '{path_in_bucket}'")
+        
         file_content = supabase_processor.storage.from_(bucket_name).download(path=path_in_bucket)
+        print(f"[CONCILIATION_TASK] Download concluído. Bytes recebidos: {len(file_content) if file_content else '0'}")
         
         with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
             tmp_file.write(file_content)
