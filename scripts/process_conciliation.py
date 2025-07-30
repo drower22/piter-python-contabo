@@ -114,6 +114,14 @@ def _save_conciliation_data(supabase_client, df, account_id, received_file_id, l
     """Salva um DataFrame limpo de dados de conciliação no Supabase."""
     try:
         logger.log('info', f'Iniciando salvamento de {len(df)} registros.')
+
+        # --- Limpeza de Encoding ---
+        # Força a conversão de todas as colunas de texto para UTF-8, tratando erros.
+        for col in df.select_dtypes(include=['object']).columns:
+            df[col] = df[col].astype(str).apply(lambda x: x.encode('utf-8', 'ignore').decode('utf-8'))
+        logger.log('info', 'Limpeza de encoding de caracteres concluída.')
+        # --------------------------
+
         df['account_id'] = account_id
         df['received_file_id'] = received_file_id
         df['id'] = [uuid.uuid4() for _ in range(len(df))]
