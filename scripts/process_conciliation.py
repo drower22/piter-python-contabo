@@ -50,7 +50,10 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
         # Garante a conversão de tipo para a coluna de data
         if 'sale_date' in df.columns:
             df['sale_date'] = pd.to_datetime(df['sale_date'], errors='coerce')
-            logger.log('info', "Coluna 'sale_date' convertida para datetime.")
+            # Converte Timestamps para string no formato ISO 8601, que é JSON serializável.
+            # pd.NaT (Not a Time) é convertido para None.
+            df['sale_date'] = df['sale_date'].apply(lambda x: x.isoformat() if pd.notna(x) else None)
+            logger.log('info', "Coluna 'sale_date' convertida para string ISO 8601.")
         
         final_columns = list(COLUMNS_MAPPING.values())
         df = df[final_columns]
@@ -88,6 +91,9 @@ def save_data_in_batches(logger, supabase_client: Client, df: pd.DataFrame, acco
         batch = records_to_insert[i:i + batch_size]
         try:
             logger.log('info', f'Salvando lote {i // batch_size + 1} com {len(batch)} registros.')
+            if batch:
+                # Log de depuração para inspecionar o primeiro registro do lote
+                logger.log('debug', f'Amostra do primeiro registro do lote: {json.dumps(batch[0], default=str)}')
             supabase_client.table(TABLE_CONCILIATION).upsert(batch, on_conflict='id').execute()
         except Exception as e:
             logger.log('error', f'Falha ao salvar lote de dados: {e}')
