@@ -107,72 +107,80 @@ def parse_percent(value):
     except Exception:
         return None
 
-def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
-    logger.log('info', f"Iniciando leitura do arquivo de conciliação: {file_path}")
+def _normalize_columns(df: pd.DataFrame) -> list:
+    """Converte os nomes das colunas para um formato padronizado."""
+    return [str(c).lower().strip().replace(' ', '_') for c in df.columns]
+
+def _find_conciliation_sheet(logger: SupabaseLogger, xls: pd.ExcelFile) -> pd.DataFrame:
+    """Encontra e retorna o DataFrame da aba de conciliação correta."""
+    target_sheet_name = 'Relatório de Conciliação'
+    sheet_names = xls.sheet_names
+    logger.log('info', f'Abas encontradas: {sheet_names}')
+
+    if target_sheet_name not in sheet_names:
+        logger.warning(f'Aba "{target_sheet_name}" não encontrada no arquivo.')
+        return None
+
     try:
-        # Lógica final e específica para encontrar a aba de conciliação
+        df = pd.read_excel(xls, sheet_name=target_sheet_name, header=0, dtype=str)
+        
+        # Validação por correspondência exata do conjunto de colunas
+        normalized_columns = _normalize_columns(df)
+        found_columns_set = set(normalized_columns)
+        
+        # Usa o conjunto completo de colunas esperadas para validação
+        expected_columns_set = set(EXPECTED_COLUMNS)
+
+        if expected_columns_set.issubset(found_columns_set):
+            df.columns = normalized_columns
+            logger.log('info', f'Aba "{target_sheet_name}" validada com sucesso.')
+            return df
+        else:
+            missing = expected_columns_set - found_columns_set
+            extra = found_columns_set - expected_columns_set
+            logger.error(f'Aba "{target_sheet_name}" encontrada, mas as colunas não correspondem.')
+            if missing:
+                logger.error(f'Colunas Faltando: {missing}')
+            if extra:
+                logger.error(f'Colunas Extras Encontradas: {extra}')
+            return None
+
+    except Exception as e:
+        logger.error(f'Falha crítica ao tentar ler a aba "{target_sheet_name}". Erro: {e}')
+        return None
+
+def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
+    logger.log('info', f"Iniciando leitura e limpeza do arquivo de conciliação: {file_path}")
+    try:
         xls = pd.ExcelFile(file_path)
-        sheet_names = xls.sheet_names
-        logger.log('info', f'Abas encontradas: {sheet_names}')
-
-        df = None
-        # Conjunto de colunas-chave mais específico para garantir que estamos na aba certa.
-        key_columns = {
-            'competencia', 'data_fato_gerador', 'fato_gerador', 'valor',
-            'pedido_associado_ifood', 'loja_id_curto', 'data_repasse_esperada'
-        }
-
-        # Prioriza a aba com o nome esperado
-        target_sheet_name = 'Relatório de Conciliação'
-        if target_sheet_name in sheet_names:
-            sheet_names.insert(0, sheet_names.pop(sheet_names.index(target_sheet_name)))
-
-        for sheet_name in sheet_names:
-            try:
-                # Tenta ler o cabeçalho na primeira linha
-                temp_df = pd.read_excel(xls, sheet_name=sheet_name, header=0, dtype=str)
-                temp_df.columns = [str(c) for c in temp_df.columns]
-                normalized_columns = {c.lower().strip().replace(' ', '_') for c in temp_df.columns}
-
-                if key_columns.issubset(normalized_columns):
-                    df = temp_df
-                    df.columns = normalized_columns
-                    logger.log('info', f'Aba "{sheet_name}" identificada como a correta.')
-                    break # Encontrou, para a busca
-            except Exception as e:
-                logger.log('warning', f'Não foi possível processar a aba "{sheet_name}" ou ela não contém as colunas esperadas. Erro: {e}')
-                continue
+        df = _find_conciliation_sheet(logger, xls)
 
         if df is None:
-            error_msg = "Nenhuma aba de conciliação válida foi encontrada. Verifique se o arquivo enviado é o correto e se a aba 'Relatório de Conciliação' existe com os cabeçalhos na primeira linha."
-            logger.log('error', error_msg)
-            raise ValueError(error_msg)
+            raise ValueError("Nenhuma aba de conciliação válida foi encontrada. Verifique se o arquivo é o correto e se a aba 'Relatório de Conciliação' existe com os cabeçalhos na primeira linha.")
 
-        logger.log('info', f'Nomes de colunas normalizados: {list(df.columns)}')
-
-
+        logger.log('info', f'Colunas normalizadas: {list(df.columns)}')
 
         # Validação de colunas
         missing_cols = [col for col in EXPECTED_COLUMNS if col not in df.columns]
         if missing_cols:
-            raise ValueError(f"Colunas ausentes no arquivo: {', '.join(missing_cols)}")
+            raise ValueError(f"Colunas esperadas não encontradas no arquivo: {', '.join(missing_cols)}")
+
+        df['raw_data'] = df.apply(lambda row: json.dumps(row.to_dict()), axis=1)
 
         # Limpeza e conversão de tipos
-        currency_columns = ['valor', 'base_calculo', 'valor_transacao', 'valor_cesta_inicial', 'valor_cesta_final']
-        for col in currency_columns:
-            df[col] = df[col].apply(parse_brazilian_currency)
+        numeric_cols = ['valor', 'base_calculo', 'valor_transacao', 'valor_cesta_inicial', 'valor_cesta_final']
+        for col in numeric_cols:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
 
-        df['percentual_taxa'] = df['percentual_taxa'].apply(parse_percent)
+        date_cols = [
+            'data_fato_gerador', 'data_criacao_pedido_associado', 'data_repasse_esperada',
+            'data_faturamento', 'data_apuracao_inicio', 'data_apuracao_fim'
+        ]
+        for col in date_cols:
+            df[col] = pd.to_datetime(df[col], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
 
-        date_columns = ['data_fato_gerador', 'data_criacao_pedido_associado', 'data_faturamento', 'data_repasse_esperada', 'data_apuracao_inicio', 'data_apuracao_fim']
-        for col in date_columns:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
-
-        # Tratar 'competencia' como texto (mantendo compatibilidade com varchar)
-        df['competencia'] = df['competencia'].astype(str)
-
-        logger.log('info', 'Limpeza e conversão de tipos de dados concluída.')
+        df = df.replace({np.nan: None})
+        logger.log('info', 'Limpeza e normalização dos dados concluídas.')
         return df
 
     except Exception as e:
