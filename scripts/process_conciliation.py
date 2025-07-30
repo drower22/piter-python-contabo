@@ -116,7 +116,8 @@ def save_conciliation_data(logger: SupabaseLogger, supabase: Client, df: pd.Data
     df['account_id'] = account_id
     df['received_file_id'] = received_file_id
     df['id'] = [uuid.uuid4() for _ in range(len(df))]
-    df['raw_data'] = df.apply(lambda row: row.to_json(date_format='iso'), axis=1)
+    # Garante que a conversão para JSON lide com erros de codificação nos dados brutos
+    df['raw_data'] = df.apply(lambda row: row.to_json(date_format='iso', force_ascii=False), axis=1)
 
     records_to_upsert = df.to_dict(orient='records')
 
