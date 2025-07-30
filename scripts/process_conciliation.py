@@ -136,11 +136,10 @@ def _save_conciliation_data(supabase_client, df, account_id, received_file_id, l
 
 def process_conciliation_file(file_path: str, file_id: str, account_id: str):
     """Orquestra o processo completo de leitura, limpeza e salvamento dos dados de conciliação."""
-    logger = SupabaseLogger(account_id, file_id)
-    supabase_client = None
+    supabase_client = init_supabase_client()
+    logger = SupabaseLogger(supabase_client)
+    logger.set_context(file_id=file_id, account_id=account_id)
     try:
-        supabase_client = init_supabase_client(logger)
-        logger.set_supabase_client(supabase_client)
         logger.log("INFO", f"Iniciando processamento do arquivo: {file_path}")
         update_file_status(logger, supabase_client, file_id, 'processing')
 
