@@ -118,7 +118,7 @@ def _find_conciliation_sheet(logger: SupabaseLogger, xls: pd.ExcelFile) -> pd.Da
     logger.log('info', f'Abas encontradas: {sheet_names}')
 
     if target_sheet_name not in sheet_names:
-        logger.warning(f'Aba "{target_sheet_name}" não encontrada no arquivo.')
+        logger.log('warning', f'Aba "{target_sheet_name}" não encontrada no arquivo.')
         return None
 
     try:
