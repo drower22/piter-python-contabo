@@ -58,14 +58,22 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
         value_columns = ['gross_value', 'transaction_value']
         for col in value_columns:
             if col in df.columns:
-                # Converte para string, remove caracteres não numéricos (exceto ponto/vírgula decimal)
-                # e depois converte para float. A vírgula é trocada por ponto.
-                df[col] = df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.extract(r'(-?\d+\.?\d*)').astype(float)
-                logger.log('info', f"Coluna '{col}' limpa e convertida para float.")
+                df[col] = df[col].astype(str).str.replace(r'[^0-9,-]', '', regex=True).str.replace(',', '.', regex=False)
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+                logger.log('info', f"Coluna '{col}' limpa e convertida para numérico.")
         
         final_columns = list(COLUMNS_MAPPING.values())
         df = df[final_columns]
-        logger.log('info', f'DataFrame finalizado com as colunas corretas.')
+        logger.log('info', 'DataFrame finalizado com as colunas corretas.')
+
+        # --- Log Explícito dos Dados (10 Primeiras Linhas) ---
+        logger.log('info', '--- INÍCIO DA AMOSTRA DE DADOS PROCESSADOS ---')
+        for index, row in df.head(10).iterrows():
+            logger.log('info', f'--- Linha {index} ---')
+            for col_name, value in row.items():
+                logger.log('info', f'    Coluna: {col_name}, Valor: "{value}", Tipo: {type(value).__name__}')
+        logger.log('info', '--- FIM DA AMOSTRA DE DADOS ---')
+
         return df
     except Exception as e:
         logger.log('error', f'Falha ao ler ou limpar os dados do Excel: {e}')
