@@ -110,40 +110,41 @@ def parse_percent(value):
 def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
     logger.log('info', f"Iniciando leitura do arquivo de conciliação: {file_path}")
     try:
-        # --- MODO DE DIAGNÓSTICO ATIVADO ---
-        logger.log('info', '--- INICIANDO MODO DE DIAGNÓSTICO DETALHADO ---')
+        # Lógica final e específica para encontrar a aba de conciliação
         xls = pd.ExcelFile(file_path)
         sheet_names = xls.sheet_names
-        logger.log('info', f'DIAGNÓSTICO: Abas encontradas no arquivo: {sheet_names}')
+        logger.log('info', f'Abas encontradas: {sheet_names}')
 
         df = None
-        key_columns = {'competencia', 'valor', 'loja_id_curto', 'data_repasse_esperada'}
+        # Conjunto de colunas-chave mais específico para garantir que estamos na aba certa.
+        key_columns = {
+            'competencia', 'data_fato_gerador', 'fato_gerador', 'valor',
+            'pedido_associado_ifood', 'loja_id_curto', 'data_repasse_esperada'
+        }
+
+        # Prioriza a aba com o nome esperado
+        target_sheet_name = 'Relatório de Conciliação'
+        if target_sheet_name in sheet_names:
+            sheet_names.insert(0, sheet_names.pop(sheet_names.index(target_sheet_name)))
 
         for sheet_name in sheet_names:
-            logger.log('info', f'--- Analisando aba: "{sheet_name}" ---')
-            for i in range(5): # Tenta ler o cabeçalho nas primeiras 5 linhas
-                try:
-                    temp_df = pd.read_excel(xls, sheet_name=sheet_name, header=i, dtype=str)
-                    # Converte todos os nomes de colunas para string para evitar erros
-                    temp_df.columns = [str(c) for c in temp_df.columns]
-                    raw_columns = list(temp_df.columns)
-                    logger.log('info', f'DIAGNÓSTICO: Aba "{sheet_name}", Linha Cabeçalho {i+1}: Colunas encontradas: {raw_columns}')
-                    
-                    normalized_columns = {c.lower().strip().replace(' ', '_') for c in raw_columns}
-                    
-                    if key_columns.issubset(normalized_columns):
-                        df = temp_df
-                        df.columns = [c.lower().strip().replace(' ', '_') for c in df.columns]
-                        logger.log('info', f'SUCESSO: Aba "{sheet_name}" com cabeçalho na linha {i+1} foi identificada como correta.')
-                        break
-                except Exception as e:
-                    logger.log('warning', f'DIAGNÓSTICO: Não foi possível ler a aba "{sheet_name}" com cabeçalho na linha {i+1}. Erro: {e}')
-                    continue
-            if df is not None:
-                break
+            try:
+                # Tenta ler o cabeçalho na primeira linha
+                temp_df = pd.read_excel(xls, sheet_name=sheet_name, header=0, dtype=str)
+                temp_df.columns = [str(c) for c in temp_df.columns]
+                normalized_columns = {c.lower().strip().replace(' ', '_') for c in temp_df.columns}
+
+                if key_columns.issubset(normalized_columns):
+                    df = temp_df
+                    df.columns = normalized_columns
+                    logger.log('info', f'Aba "{sheet_name}" identificada como a correta.')
+                    break # Encontrou, para a busca
+            except Exception as e:
+                logger.log('warning', f'Não foi possível processar a aba "{sheet_name}" ou ela não contém as colunas esperadas. Erro: {e}')
+                continue
 
         if df is None:
-            error_msg = "Nenhuma aba de conciliação válida foi encontrada. Verifique se o arquivo enviado é o relatório de conciliação correto e não o financeiro."
+            error_msg = "Nenhuma aba de conciliação válida foi encontrada. Verifique se o arquivo enviado é o correto e se a aba 'Relatório de Conciliação' existe com os cabeçalhos na primeira linha."
             logger.log('error', error_msg)
             raise ValueError(error_msg)
 
