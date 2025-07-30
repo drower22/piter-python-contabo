@@ -194,10 +194,7 @@ def main():
     parser.add_argument('--file-id', required=True, type=str, help='ID do registro do arquivo (UUID).')
     args = parser.parse_args()
 
-    supabase_client = init_supabase_client()
-    logger = SupabaseLogger(supabase_client)
-    
-    process_conciliation_file(supabase_client, logger, args.filepath, args.file_id, args.account_id)
+    process_conciliation_file(args.filepath, args.file_id, args.account_id)
 
 if __name__ == "__main__":
     main()
