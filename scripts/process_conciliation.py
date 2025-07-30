@@ -1,4 +1,5 @@
 import pandas as pd
+import io
 import numpy as np
 import sys
 import os
@@ -148,12 +149,18 @@ def _find_conciliation_sheet(logger: SupabaseLogger, xls: pd.ExcelFile) -> pd.Da
 def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
     logger.log('info', f"Iniciando leitura e limpeza do arquivo de conciliação: {file_path}")
     try:
-        # Usa o motor 'openpyxl' para maior robustez com arquivos .xlsx
-        with pd.ExcelFile(file_path, engine='openpyxl') as xls:
+        logger.log('debug', 'Abrindo o arquivo em modo binário para leitura.')
+        with open(file_path, 'rb') as f:
+            file_content_bytes = f.read()
+        
+        logger.log('debug', f'Arquivo lido em memória, {len(file_content_bytes)} bytes. Passando para o pandas.')
+        # Passa o conteúdo em bytes diretamente para o pandas, evitando problemas de I/O do sistema
+        with pd.ExcelFile(io.BytesIO(file_content_bytes), engine='openpyxl') as xls:
             df = _find_conciliation_sheet(logger, xls)
 
         if df is None:
-            raise ValueError("Nenhuma aba de conciliação válida foi encontrada. Verifique se o arquivo é o correto e se a aba 'Relatório de Conciliação' existe com os cabeçalhos na primeira linha.")
+            # A função _find_conciliation_sheet já loga os detalhes do erro
+            raise ValueError("Nenhuma aba de conciliação válida foi encontrada. Verifique os logs anteriores para detalhes.")
 
         logger.log('info', f'Colunas normalizadas: {list(df.columns)}')
 
