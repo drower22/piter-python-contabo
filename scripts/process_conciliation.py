@@ -16,7 +16,7 @@ if project_root not in sys.path:
 # --- Constantes ---
 TABLE_LOGS = 'logs'
 TABLE_CONCILIATION = 'ifood_conciliation'
-TABLE_FILES = 'files'
+TABLE_FILES = 'received_files'
 
 # Mapeamento exato das colunas do Excel para as colunas da tabela
 COLUMNS_MAPPING = {
