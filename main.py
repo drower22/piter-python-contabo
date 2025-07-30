@@ -276,8 +276,8 @@ def run_processing_conciliacao(file_id: str, storage_path: str):
             sys.executable,
             script_path,
             '--filepath', temp_file_path,
-            '--account-id', str(account_id),
-            '--file-id', str(file_id)
+            '--account_id', str(account_id),
+            '--file_id', str(file_id)
         ]
         
         logger.log('INFO', f'Executando comando: {" ".join(command)}')
