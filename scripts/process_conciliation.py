@@ -148,8 +148,9 @@ def _find_conciliation_sheet(logger: SupabaseLogger, xls: pd.ExcelFile) -> pd.Da
 def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
     logger.log('info', f"Iniciando leitura e limpeza do arquivo de conciliação: {file_path}")
     try:
-        xls = pd.ExcelFile(file_path)
-        df = _find_conciliation_sheet(logger, xls)
+        # Usa o motor 'openpyxl' para maior robustez com arquivos .xlsx
+        with pd.ExcelFile(file_path, engine='openpyxl') as xls:
+            df = _find_conciliation_sheet(logger, xls)
 
         if df is None:
             raise ValueError("Nenhuma aba de conciliação válida foi encontrada. Verifique se o arquivo é o correto e se a aba 'Relatório de Conciliação' existe com os cabeçalhos na primeira linha.")
