@@ -112,41 +112,37 @@ def _normalize_columns(df: pd.DataFrame) -> list:
     return [str(c).lower().strip().replace(' ', '_') for c in df.columns]
 
 def _find_conciliation_sheet(logger: SupabaseLogger, xls: pd.ExcelFile) -> pd.DataFrame:
-    """Encontra e retorna o DataFrame da aba de conciliação correta."""
-    target_sheet_name = 'Relatório de Conciliação'
+    """Lê a segunda aba do arquivo (índice 1) e a valida."""
     sheet_names = xls.sheet_names
-    logger.log('info', f'Abas encontradas: {sheet_names}')
+    logger.log('info', f'Abas encontradas no arquivo: {sheet_names}')
 
-    if target_sheet_name not in sheet_names:
-        logger.log('warning', f'Aba "{target_sheet_name}" não encontrada no arquivo.')
+    if len(sheet_names) < 2:
+        logger.error(f'O arquivo Excel não contém uma segunda aba (encontradas: {len(sheet_names)}).')
         return None
 
     try:
-        df = pd.read_excel(xls, sheet_name=target_sheet_name, header=0, dtype=str)
-        
-        # Validação por correspondência exata do conjunto de colunas
-        normalized_columns = _normalize_columns(df)
-        found_columns_set = set(normalized_columns)
-        
-        # Usa o conjunto completo de colunas esperadas para validação
-        expected_columns_set = set(EXPECTED_COLUMNS)
+        # Lê a segunda aba diretamente pelo índice 1
+        second_sheet_name = sheet_names[1]
+        logger.log('info', f'Tentando ler a segunda aba do arquivo: "{second_sheet_name}"')
+        df = pd.read_excel(xls, sheet_name=1, header=0, dtype=str)
 
-        if expected_columns_set.issubset(found_columns_set):
+        # Valida as colunas da aba lida
+        normalized_columns = _normalize_columns(df)
+        found_columns = set(normalized_columns)
+        expected_columns = set(EXPECTED_COLUMNS)
+
+        if expected_columns.issubset(found_columns):
             df.columns = normalized_columns
-            logger.log('info', f'Aba "{target_sheet_name}" validada com sucesso.')
+            logger.log('info', f'Sucesso! A segunda aba ("{second_sheet_name}") foi lida e validada.')
             return df
         else:
-            missing = expected_columns_set - found_columns_set
-            extra = found_columns_set - expected_columns_set
-            logger.error(f'Aba "{target_sheet_name}" encontrada, mas as colunas não correspondem.')
-            if missing:
-                logger.error(f'Colunas Faltando: {missing}')
-            if extra:
-                logger.error(f'Colunas Extras Encontradas: {extra}')
+            missing = expected_columns - found_columns
+            logger.error(f'A segunda aba ("{second_sheet_name}") foi lida, mas as colunas não são as esperadas.')
+            logger.error(f'Colunas Faltando: {missing}')
             return None
-
+            
     except Exception as e:
-        logger.error(f'Falha crítica ao tentar ler a aba "{target_sheet_name}". Erro: {e}')
+        logger.error(f'Falha crítica ao tentar ler a segunda aba do arquivo. Erro: {e}')
         return None
 
 def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
