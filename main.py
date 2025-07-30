@@ -153,6 +153,9 @@ class ProcessRequest(BaseModel):
     file_id: str
     storage_path: str
 
+class ProcessFinanceiroRequest(BaseModel):
+    file_id: str
+
 def run_processing_financeiro(file_id: str):
     """Função que executa o processamento FINANCEIRO em background."""
     # Inicializa um cliente supabase e logger para este processo
@@ -234,7 +237,7 @@ def run_processing_financeiro(file_id: str):
 
 
 @app.post("/processar-planilha-financeiro", tags=["Processamento"], summary="Inicia o processamento de uma planilha FINANCEIRA em background")
-async def processar_planilha_financeiro_endpoint(process_request: ProcessRequest, background_tasks: BackgroundTasks):
+async def processar_planilha_financeiro_endpoint(process_request: ProcessFinanceiroRequest, background_tasks: BackgroundTasks):
     """
     [FINANCEIRO] Recebe um `file_id` e agenda o processamento da planilha financeira correspondente em background.
     Retorna uma resposta imediata de sucesso.
