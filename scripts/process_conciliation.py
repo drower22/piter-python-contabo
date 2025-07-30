@@ -110,32 +110,39 @@ def parse_percent(value):
 def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
     logger.log('info', f"Iniciando leitura do arquivo de conciliação: {file_path}")
     try:
-        # Lógica de busca definitiva pela aba e cabeçalho corretos
+        # --- MODO DE DIAGNÓSTICO ATIVADO ---
+        logger.log('info', '--- INICIANDO MODO DE DIAGNÓSTICO DETALHADO ---')
         xls = pd.ExcelFile(file_path)
         sheet_names = xls.sheet_names
-        logger.log('info', f'Abas encontradas no arquivo: {sheet_names}')
+        logger.log('info', f'DIAGNÓSTICO: Abas encontradas no arquivo: {sheet_names}')
 
         df = None
         key_columns = {'competencia', 'valor', 'loja_id_curto', 'data_repasse_esperada'}
 
         for sheet_name in sheet_names:
+            logger.log('info', f'--- Analisando aba: "{sheet_name}" ---')
             for i in range(5): # Tenta ler o cabeçalho nas primeiras 5 linhas
                 try:
                     temp_df = pd.read_excel(xls, sheet_name=sheet_name, header=i, dtype=str)
-                    normalized_columns = {c.lower().strip().replace(' ', '_') for c in temp_df.columns}
+                    raw_columns = list(temp_df.columns)
+                    logger.log('info', f'DIAGNÓSTICO: Aba "{sheet_name}", Linha Cabeçalho {i+1}: Colunas encontradas: {raw_columns}')
                     
-                    if key_columns.issubset(normalized_columns):
+                    normalized_columns = {c.lower().strip().replace(' ', '_') for c in raw_columns}
+                    is_subset = key_columns.issubset(normalized_columns)
+                    
+                    if is_subset:
                         df = temp_df
-                        df.columns = [c.lower().strip().replace(' ', '_') for c in df.columns] # Normaliza o df final
-                        logger.log('info', f'Aba "{sheet_name}" com cabeçalho na linha {i+1} foi identificada como correta.')
+                        df.columns = [c.lower().strip().replace(' ', '_') for c in df.columns]
+                        logger.log('info', f'SUCESSO: Aba "{sheet_name}" com cabeçalho na linha {i+1} foi identificada como correta.')
                         break
-                except Exception:
-                    continue # Ignora erros se a linha não for um cabeçalho válido
+                except Exception as e:
+                    logger.log('warning', f'DIAGNÓSTICO: Não foi possível ler a aba "{sheet_name}" com cabeçalho na linha {i+1}. Erro: {e}')
+                    continue
             if df is not None:
                 break
 
         if df is None:
-            error_msg = "Nenhuma aba com as colunas esperadas foi encontrada no arquivo, mesmo após buscar em múltiplas linhas."
+            error_msg = "DIAGNÓSTICO FINALIZADO: Nenhuma aba com as colunas esperadas foi encontrada no arquivo."
             logger.log('error', error_msg)
             raise ValueError(error_msg)
 
