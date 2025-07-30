@@ -47,13 +47,21 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
         df.rename(columns=COLUMNS_MAPPING, inplace=True)
         logger.log('info', 'Colunas renomeadas.')
 
-        # Garante a conversão de tipo para a coluna de data
-        if 'sale_date' in df.columns:
-            df['sale_date'] = pd.to_datetime(df['sale_date'], errors='coerce')
-            # Converte Timestamps para string no formato ISO 8601, que é JSON serializável.
-            # pd.NaT (Not a Time) é convertido para None.
-            df['sale_date'] = df['sale_date'].apply(lambda x: x.isoformat() if pd.notna(x) else None)
-            logger.log('info', "Coluna 'sale_date' convertida para string ISO 8601.")
+        # --- Conversão Robusta de Tipos ---
+        date_columns = ['sale_date', 'payment_date']
+        for col in date_columns:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+                df[col] = df[col].apply(lambda x: x.isoformat() if pd.notna(x) else None)
+                logger.log('info', f"Coluna '{col}' convertida para string ISO 8601.")
+
+        value_columns = ['gross_value', 'transaction_value']
+        for col in value_columns:
+            if col in df.columns:
+                # Converte para string, remove caracteres não numéricos (exceto ponto/vírgula decimal)
+                # e depois converte para float. A vírgula é trocada por ponto.
+                df[col] = df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.extract(r'(-?\d+\.?\d*)').astype(float)
+                logger.log('info', f"Coluna '{col}' limpa e convertida para float.")
         
         final_columns = list(COLUMNS_MAPPING.values())
         df = df[final_columns]
