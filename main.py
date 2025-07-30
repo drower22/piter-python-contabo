@@ -289,6 +289,8 @@ def run_processing_conciliacao(file_id: str, storage_path: str):
         logger.log('INFO', 'Iniciando a execução direta da função de processamento de conciliação.')
 
         process_conciliation_file(
+            logger=logger,
+            supabase_client=supabase_processor,
             file_path=temp_file_path,
             file_id=file_id,
             account_id=account_id
