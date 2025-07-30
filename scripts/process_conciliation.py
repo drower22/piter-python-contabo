@@ -68,7 +68,8 @@ def _find_conciliation_sheet(logger: SupabaseLogger, xls: pd.ExcelFile) -> pd.Da
     target_sheet_name = sheet_names[1] # Pega a segunda aba
     logger.log('info', f'Lendo dados da segunda aba: "{target_sheet_name}"')
     df = pd.read_excel(xls, sheet_name=target_sheet_name, dtype=str)
-    
+    logger.log('info', f'Passo 1: Lidas {len(df)} linhas do arquivo Excel.')
+
     df = _normalize_columns(df)
     logger.log('info', f'Colunas normalizadas da aba "{target_sheet_name}": {list(df.columns)}')
     
@@ -109,70 +110,80 @@ def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> 
         logger.log('error', f'Falha ao ler ou limpar os dados de conciliação: {e}')
         raise
 
-def save_conciliation_data(logger: SupabaseLogger, supabase: Client, df: pd.DataFrame, account_id: str, received_file_id: str):
-    """Salva os dados de conciliação processados no Supabase."""
-    logger.log('info', f'Iniciando salvamento de {len(df)} registros de conciliação.')
-    
-    df['account_id'] = account_id
-    df['received_file_id'] = received_file_id
-    df['id'] = [uuid.uuid4() for _ in range(len(df))]
-    # Garante que a conversão para JSON lide com erros de codificação nos dados brutos
-    df['raw_data'] = df.apply(lambda row: row.to_json(date_format='iso', force_ascii=False), axis=1)
+def _save_conciliation_data(supabase_client, df, account_id, received_file_id, logger):
+    """Salva um DataFrame limpo de dados de conciliação no Supabase."""
+    try:
+        logger.log('info', f'Iniciando salvamento de {len(df)} registros.')
+        df['account_id'] = account_id
+        df['received_file_id'] = received_file_id
+        df['id'] = [uuid.uuid4() for _ in range(len(df))]
+        df['raw_data'] = df.apply(lambda row: row.to_json(date_format='iso', force_ascii=False), axis=1)
 
-    records_to_upsert = df.to_dict(orient='records')
-
-    if not records_to_upsert:
-        logger.log('warning', "Nenhum registro de conciliação válido para inserir.")
-        return
-
-    BATCH_SIZE = 200
-    logger.log('info', f'Enviando {len(records_to_upsert)} registros em lotes de {BATCH_SIZE}.')
-
-    for i in range(0, len(records_to_upsert), BATCH_SIZE):
-        batch = records_to_upsert[i:i+BATCH_SIZE]
-        try:
+        records_to_upsert = df.to_dict(orient='records')
+        
+        batch_size = 200
+        for i in range(0, len(records_to_upsert), batch_size):
+            batch = records_to_upsert[i:i + batch_size]
             for record in batch:
                 for key, value in record.items():
-                    if pd.isna(value):
-                        record[key] = None
-                    elif isinstance(value, (datetime.datetime, datetime.date)):
+                    if isinstance(value, (datetime.datetime, datetime.date)):
                         record[key] = value.isoformat()
-            
-            supabase.table(TABLE_CONCILIATION_DATA).insert(batch).execute()
+            supabase_client.table(TABLE_CONCILIATION_DATA).insert(batch).execute()
             logger.log('info', f'Lote de {len(batch)} registros salvo com sucesso.')
-        except Exception as e:
-            logger.log('error', f'Erro ao salvar lote de conciliação no Supabase: {e}')
-            raise
+    except Exception as e:
+        logger.log('error', f'Erro ao salvar dados de conciliação: {e}')
+        raise # Propaga o erro para o bloco principal
 
-    logger.log('info', 'Salvamento dos dados de conciliação concluído.')
-
-# --- Função Principal de Orquestração ---
-
-def process_conciliation_file(supabase: Client, logger: SupabaseLogger, file_path: str, file_id: str, account_id: str):
-    """Função principal que orquestra o processamento do arquivo de conciliação."""
-    logger.set_context(file_id=file_id, account_id=account_id)
-
+def process_conciliation_file(file_path: str, file_id: str, account_id: str):
+    """Orquestra o processo completo de leitura, limpeza e salvamento dos dados de conciliação."""
+    logger = SupabaseLogger(None, account_id, file_id)
+    supabase_client = None
     try:
-        logger.log("INFO", f"Iniciando processamento do arquivo de conciliação: {file_path}")
-        update_file_status(logger, supabase, file_id, 'processing')
+        supabase_client = init_supabase_client(logger)
+        logger.set_supabase_client(supabase_client)
+        logger.log("INFO", f"Iniciando processamento do arquivo: {file_path}")
+        update_file_status(logger, supabase_client, file_id, 'processing')
 
-        df = read_and_clean_conciliation_data(logger, file_path)
+        with open(file_path, 'rb') as f:
+            file_content = f.read()
         
-        save_conciliation_data(logger, supabase, df, account_id, file_id)
+        df = _read_and_prepare_conciliation_df(file_content, logger)
+        logger.log('info', f'[DIAGNÓSTICO] Passo 1: {len(df) if df is not None else 0} linhas lidas do Excel.')
+
+        if df is None or df.empty:
+            logger.log('warning', 'Nenhum dado lido do arquivo. Processamento encerrado.')
+            update_file_status(logger, supabase_client, file_id, 'processed', 'Arquivo vazio ou em formato inesperado.')
+            return
+
+        df = df.iloc[3:].copy()
+        logger.log('info', f'[DIAGNÓSTICO] Passo 2: {len(df)} linhas após remover cabeçalho.')
+
+        df.dropna(how='all', inplace=True)
+        logger.log('info', f'[DIAGNÓSTICO] Passo 3: {len(df)} linhas após remover linhas vazias.')
+
+        if df.empty:
+            logger.log('warning', 'Nenhum dado restou após a limpeza. Nenhum registro será salvo.')
+            update_file_status(logger, supabase_client, file_id, 'processed', 'Nenhum dado válido encontrado após limpeza.')
+            return
+
+        df.reset_index(drop=True, inplace=True)
+        logger.log('info', f'[DIAGNÓSTICO] Passo 4: {len(df)} registros prontos para salvar.')
+        _save_conciliation_data(supabase_client, df, account_id, file_id, logger)
         
-        update_file_status(logger, supabase, file_id, 'processed')
+        update_file_status(logger, supabase_client, file_id, 'processed')
         logger.log("INFO", "Processamento do relatório de conciliação concluído com sucesso.")
         print(json.dumps({"status": "success", "file_id": file_id}))
 
     except Exception as e:
-        error_message = f"Erro no processamento da conciliação: {e}"
-        tb_str = traceback.format_exc()
-        logger.log("ERROR", error_message, context={"traceback": tb_str})
-        update_file_status(logger, supabase, file_id, 'error', error_message)
-        print(json.dumps({"status": "error", "message": str(e), "file_id": file_id}))
-    
+        error_message = f"Erro inesperado no processamento da conciliação: {e}"
+        logger.log('error', error_message, traceback.format_exc())
+        if supabase_client:
+            update_file_status(logger, supabase_client, file_id, 'error', error_message, traceback.format_exc())
+        print(json.dumps({"status": "error", "file_id": file_id, "error": str(e)}))
     finally:
-        logger.flush()
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            logger.log('info', f'Arquivo temporário {file_path} removido.')
 
 # --- Ponto de Entrada para Execução via Linha de Comando ---
 
