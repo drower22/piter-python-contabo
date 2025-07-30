@@ -124,13 +124,14 @@ def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> 
             for i in range(5): # Tenta ler o cabeçalho nas primeiras 5 linhas
                 try:
                     temp_df = pd.read_excel(xls, sheet_name=sheet_name, header=i, dtype=str)
+                    # Converte todos os nomes de colunas para string para evitar erros
+                    temp_df.columns = [str(c) for c in temp_df.columns]
                     raw_columns = list(temp_df.columns)
                     logger.log('info', f'DIAGNÓSTICO: Aba "{sheet_name}", Linha Cabeçalho {i+1}: Colunas encontradas: {raw_columns}')
                     
                     normalized_columns = {c.lower().strip().replace(' ', '_') for c in raw_columns}
-                    is_subset = key_columns.issubset(normalized_columns)
                     
-                    if is_subset:
+                    if key_columns.issubset(normalized_columns):
                         df = temp_df
                         df.columns = [c.lower().strip().replace(' ', '_') for c in df.columns]
                         logger.log('info', f'SUCESSO: Aba "{sheet_name}" com cabeçalho na linha {i+1} foi identificada como correta.')
@@ -142,7 +143,7 @@ def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> 
                 break
 
         if df is None:
-            error_msg = "DIAGNÓSTICO FINALIZADO: Nenhuma aba com as colunas esperadas foi encontrada no arquivo."
+            error_msg = "Nenhuma aba de conciliação válida foi encontrada. Verifique se o arquivo enviado é o relatório de conciliação correto e não o financeiro."
             logger.log('error', error_msg)
             raise ValueError(error_msg)
 
