@@ -110,7 +110,24 @@ def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> 
         logger.log('error', f'Falha ao ler ou limpar os dados de conciliação: {e}')
         raise
 
-def _save_conciliation_data(supabase_client, df, account_id, received_file_id, logger):
+def safe_to_json(row, logger):
+    """Tenta converter uma linha do DataFrame para JSON, registrando erros de encoding sem quebrar o processo."""
+    try:
+        return row.to_json(date_format='iso', force_ascii=False)
+    except UnicodeDecodeError as e:
+        safe_dict = {}
+        for k, v in row.items():
+            try:
+                safe_dict[k] = str(v).encode('utf-8', 'ignore').decode('utf-8')
+            except Exception:
+                safe_dict[k] = "[DADO ILEGÍVEL]"
+        
+        error_message = f"Falha de encoding ao converter linha para JSON. Erro: {e}"
+        logger.log('error', error_message, {'problematic_row_data': safe_dict})
+        
+        return json.dumps({"error": error_message, "original_data_cleaned": safe_dict})
+
+def _save_conciliation_data(supabase_client: Client, df: pd.DataFrame, account_id: str, received_file_id: str, logger: SupabaseLogger):
     """Salva um DataFrame limpo de dados de conciliação no Supabase."""
     try:
         logger.log('info', f'Iniciando salvamento de {len(df)} registros.')
@@ -125,7 +142,10 @@ def _save_conciliation_data(supabase_client, df, account_id, received_file_id, l
         df['account_id'] = account_id
         df['received_file_id'] = received_file_id
         df['id'] = [uuid.uuid4() for _ in range(len(df))]
-        df['raw_data'] = df.apply(lambda row: row.to_json(date_format='iso', force_ascii=False), axis=1)
+        
+        logger.log('info', 'Iniciando serialização segura para JSON linha a linha.')
+        df['raw_data'] = df.apply(lambda row: safe_to_json(row, logger), axis=1)
+        logger.log('info', 'Serialização para JSON concluída.')
 
         records_to_upsert = df.to_dict(orient='records')
         
