@@ -149,6 +149,8 @@ def process_conciliation_file(file_path: str, file_id: str, account_id: str):
         
         df = _read_and_prepare_conciliation_df(file_content, logger)
         logger.log('info', f'[DIAGNÓSTICO] Passo 1: {len(df) if df is not None else 0} linhas lidas do Excel.')
+        if df is not None and not df.empty:
+            logger.log('info', f'[AMOSTRA DADOS] Após leitura inicial:\n{df.head(6).to_string()}')
 
         if df is None or df.empty:
             logger.log('warning', 'Nenhum dado lido do arquivo. Processamento encerrado.')
@@ -157,9 +159,13 @@ def process_conciliation_file(file_path: str, file_id: str, account_id: str):
 
         df = df.iloc[3:].copy()
         logger.log('info', f'[DIAGNÓSTICO] Passo 2: {len(df)} linhas após remover cabeçalho.')
+        if not df.empty:
+            logger.log('info', f'[AMOSTRA DADOS] Após remover cabeçalho:\n{df.head(6).to_string()}')
 
         df.dropna(how='all', inplace=True)
         logger.log('info', f'[DIAGNÓSTICO] Passo 3: {len(df)} linhas após remover linhas vazias.')
+        if not df.empty:
+            logger.log('info', f'[AMOSTRA DADOS] Após remover linhas vazias:\n{df.head(6).to_string()}')
 
         if df.empty:
             logger.log('warning', 'Nenhum dado restou após a limpeza. Nenhum registro será salvo.')
@@ -168,6 +174,9 @@ def process_conciliation_file(file_path: str, file_id: str, account_id: str):
 
         df.reset_index(drop=True, inplace=True)
         logger.log('info', f'[DIAGNÓSTICO] Passo 4: {len(df)} registros prontos para salvar.')
+        if not df.empty:
+            logger.log('info', f'[AMOSTRA DADOS] Antes de salvar:\n{df.head(6).to_string()}')
+
         _save_conciliation_data(supabase_client, df, account_id, file_id, logger)
         
         update_file_status(logger, supabase_client, file_id, 'processed')
