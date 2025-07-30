@@ -117,7 +117,7 @@ def _find_conciliation_sheet(logger: SupabaseLogger, xls: pd.ExcelFile) -> pd.Da
     logger.log('info', f'Abas encontradas no arquivo: {sheet_names}')
 
     if len(sheet_names) < 2:
-        logger.error(f'O arquivo Excel não contém uma segunda aba (encontradas: {len(sheet_names)}).')
+        logger.log('error', f'O arquivo Excel não contém uma segunda aba (encontradas: {len(sheet_names)}).')
         return None
 
     try:
@@ -137,12 +137,12 @@ def _find_conciliation_sheet(logger: SupabaseLogger, xls: pd.ExcelFile) -> pd.Da
             return df
         else:
             missing = expected_columns - found_columns
-            logger.error(f'A segunda aba ("{second_sheet_name}") foi lida, mas as colunas não são as esperadas.')
-            logger.error(f'Colunas Faltando: {missing}')
+            logger.log('error', f'A segunda aba ("{second_sheet_name}") foi lida, mas as colunas não são as esperadas.')
+            logger.log('error', f'Colunas Faltando: {missing}')
             return None
             
     except Exception as e:
-        logger.error(f'Falha crítica ao tentar ler a segunda aba do arquivo. Erro: {e}')
+        logger.log('error', f'Falha crítica ao tentar ler a segunda aba do arquivo. Erro: {e}')
         return None
 
 def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
