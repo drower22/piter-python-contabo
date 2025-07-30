@@ -110,39 +110,37 @@ def parse_percent(value):
 def read_and_clean_conciliation_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
     logger.log('info', f"Iniciando leitura do arquivo de conciliação: {file_path}")
     try:
-        # Lógica de busca ativa pela aba correta
+        # Lógica de busca definitiva pela aba e cabeçalho corretos
         xls = pd.ExcelFile(file_path)
         sheet_names = xls.sheet_names
         logger.log('info', f'Abas encontradas no arquivo: {sheet_names}')
 
         df = None
-        correct_sheet_name = None
-
-        # Lista de colunas essenciais para identificar a aba correta
-        key_columns = ['competencia', 'data_fato_gerador', 'fato_gerador', 'valor']
+        key_columns = {'competencia', 'valor', 'loja_id_curto', 'data_repasse_esperada'}
 
         for sheet_name in sheet_names:
-            try:
-                temp_df = pd.read_excel(xls, sheet_name=sheet_name, dtype=str)
-                # Normaliza as colunas do dataframe temporário para verificação
-                temp_df.columns = [c.lower().strip().replace(' ', '_') for c in temp_df.columns]
-                
-                # Verifica se as colunas-chave existem nesta aba
-                if all(col in temp_df.columns for col in key_columns):
-                    df = temp_df
-                    correct_sheet_name = sheet_name
-                    logger.log('info', f'Aba correta encontrada: "{correct_sheet_name}". Usando esta aba para o processamento.')
-                    break # Para a busca assim que encontrar a aba certa
-            except Exception as e:
-                logger.log('warning', f'Não foi possível ler a aba "{sheet_name}". Erro: {e}')
-                continue
+            for i in range(5): # Tenta ler o cabeçalho nas primeiras 5 linhas
+                try:
+                    temp_df = pd.read_excel(xls, sheet_name=sheet_name, header=i, dtype=str)
+                    normalized_columns = {c.lower().strip().replace(' ', '_') for c in temp_df.columns}
+                    
+                    if key_columns.issubset(normalized_columns):
+                        df = temp_df
+                        df.columns = [c.lower().strip().replace(' ', '_') for c in df.columns] # Normaliza o df final
+                        logger.log('info', f'Aba "{sheet_name}" com cabeçalho na linha {i+1} foi identificada como correta.')
+                        break
+                except Exception:
+                    continue # Ignora erros se a linha não for um cabeçalho válido
+            if df is not None:
+                break
 
         if df is None:
-            error_msg = "Nenhuma aba com as colunas esperadas foi encontrada no arquivo."
+            error_msg = "Nenhuma aba com as colunas esperadas foi encontrada no arquivo, mesmo após buscar em múltiplas linhas."
             logger.log('error', error_msg)
             raise ValueError(error_msg)
 
         logger.log('info', f'Nomes de colunas normalizados: {list(df.columns)}')
+
 
 
         # Validação de colunas
