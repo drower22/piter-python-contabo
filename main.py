@@ -240,54 +240,66 @@ async def processar_planilha_financeiro_endpoint(process_request: ProcessRequest
     background_tasks.add_task(run_processing_financeiro, process_request.file_id)
     return {"message": "Processamento da planilha financeira agendado com sucesso!", "file_id": process_request.file_id}
 
-def run_processing_conciliacao(file_id: str):
-    """Função que executa o processamento de CONCILIAÇÃO em background."""
-    supabase_processor = None
+def run_processing_conciliacao(file_id: str, storage_path: str):
+    """Função segura que executa o processamento de CONCILIAÇÃO em background."""
+    supabase_processor = init_processor_supabase()
     logger = None
+    temp_file_path = None
+
     try:
-        # 1. Inicializar cliente Supabase e Logger para o processo em background
-        supabase_processor = init_processor_supabase()
-        logger = SupabaseLogger(supabase_processor)
-        logger.log("INFO", f"Iniciando processamento de conciliação em background para file_id: {file_id}")
-
-        # Obter account_id e storage_path do banco de dados
-        response = supabase_processor.table('received_files').select('account_id, storage_path').eq('id', file_id).single().execute()
-        if not response.data:
-            logger.log("CRITICAL", f"Nenhum registro encontrado para file_id {file_id} em received_files.")
+        # ETAPA 1: OBTER METADADOS (SEM LOGGER ATIVO)
+        response = supabase_processor.table('received_files').select('account_id').eq('id', file_id).single().execute()
+        if not response.data or not response.data.get('account_id'):
+            print(f"ERRO CRÍTICO: Metadados para file_id {file_id} não encontrados.", file=sys.stderr)
             return
+        account_id = response.data['account_id']
 
-        account_id = response.data.get('account_id')
-        storage_path = response.data.get('storage_path')
-
-        if not account_id or not storage_path:
-            logger.log("CRITICAL", f"'account_id' ou 'storage_path' está faltando para o file_id {file_id}.")
-            return
-
-        clean_storage_path = storage_path.lstrip('/')
-        path_parts = clean_storage_path.split('/')
+        # ETAPA 2: DOWNLOAD E SALVAMENTO (COM DIAGNÓSTICO PRIMITIVO)
+        path_parts = storage_path.lstrip('/').split('/')
         bucket_name = path_parts[0]
         path_in_bucket = '/'.join(path_parts[1:])
-
-        # 2. Baixar o arquivo do Supabase Storage e prepará-lo para processamento
-        logger.log('INFO', f'Baixando arquivo de {bucket_name}/{path_in_bucket}')
-        file_content = supabase_processor.storage.from_(bucket_name).download(path=path_in_bucket)
+        
+        try:
+            print(f"DIAGNÓSTICO: Tentando baixar {bucket_name}/{path_in_bucket}")
+            file_content = supabase_processor.storage.from_(bucket_name).download(path=path_in_bucket)
+            print(f"DIAGNÓSTICO: Download concluído, {len(file_content)} bytes recebidos.")
+        except Exception as download_error:
+            print(f"FALHA NO DOWNLOAD: {download_error}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
+            raise  # Re-levanta a exceção para parar a execução
 
         with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
             tmp_file.write(file_content)
             temp_file_path = tmp_file.name
+        del file_content  # Limpa o conteúdo binário da memória
 
-        # 3. Chamar a função de processamento de conciliação
-        logger.log('INFO', f'Arquivo temporário criado em {temp_file_path}, iniciando processamento.')
+        # ETAPA 3: PROCESSAMENTO COM LOGGER SEGURO
+        logger = SupabaseLogger(supabase_processor, "conciliation_logs")
+        logger.set_context(file_id=file_id, account_id=account_id)
+        
+        logger.log('INFO', f'Iniciando processamento para o arquivo ID: {file_id}. Arquivo temporário em: {temp_file_path}')
+        update_file_status(logger, supabase_processor, file_id, 'processing')
+        
         processar_relatorio_conciliacao(supabase_processor, logger, temp_file_path, file_id, account_id)
 
     except Exception as e:
-        error_message = f"Erro no processamento de conciliação em background para file_id {file_id}: {e}"
+        error_message = f"Erro no processamento da conciliação: {e}"
+        tb_str = traceback.format_exc()
+        
         if logger:
-            logger.log("CRITICAL", error_message, context={"traceback": traceback.format_exc()})
+            logger.log('ERROR', error_message, context={"traceback": tb_str})
+            update_file_status(logger, supabase_processor, file_id, 'error', error_message)
+        else:
+            # Fallback para o console se o erro ocorrer antes do logger ser inicializado
+            print(f"ERRO CRÍTICO (logger indisponível): {error_message}", file=sys.stderr)
+            print(tb_str, file=sys.stderr)
+            
     finally:
-        # 4. Limpar o arquivo temporário e o logger
-        if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+        # Garante que o arquivo temporário seja sempre removido
+        if temp_file_path and os.path.exists(temp_file_path):
             os.remove(temp_file_path)
+            # Usamos print aqui pois o logger pode já ter sido finalizado
+            print(f"INFO: Arquivo temporário {temp_file_path} removido.")
         if logger:
             logger.flush()
 
