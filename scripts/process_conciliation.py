@@ -136,7 +136,7 @@ def _save_conciliation_data(supabase_client, df, account_id, received_file_id, l
 
 def process_conciliation_file(file_path: str, file_id: str, account_id: str):
     """Orquestra o processo completo de leitura, limpeza e salvamento dos dados de conciliação."""
-    logger = SupabaseLogger(None, account_id, file_id)
+    logger = SupabaseLogger(account_id, file_id)
     supabase_client = None
     try:
         supabase_client = init_supabase_client(logger)
