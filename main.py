@@ -150,6 +150,7 @@ async def upload_planilha_url(
 
 class ProcessRequest(BaseModel):
     file_id: str
+    storage_path: str
 
 def run_processing_financeiro(file_id: str):
     """Função que executa o processamento FINANCEIRO em background."""
