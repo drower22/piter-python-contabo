@@ -1,4 +1,6 @@
 import os
+import sys
+import subprocess
 import traceback
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import JSONResponse
@@ -243,62 +245,70 @@ async def processar_planilha_financeiro_endpoint(process_request: ProcessRequest
 def run_processing_conciliacao(file_id: str, storage_path: str):
     """Função segura que executa o processamento de CONCILIAÇÃO em background."""
     supabase_processor = init_processor_supabase()
-    logger = None
+    logger = SupabaseLogger(supabase_processor)
     temp_file_path = None
 
     try:
-        # ETAPA 1: OBTER METADADOS (SEM LOGGER ATIVO)
+        # Busca o ID da conta associado ao arquivo.
         response = supabase_processor.table('received_files').select('account_id').eq('id', file_id).single().execute()
         if not response.data or not response.data.get('account_id'):
-            print(f"ERRO CRÍTICO: Metadados para file_id {file_id} não encontrados.", file=sys.stderr)
-            return
+            raise ValueError(f"Metadados (account_id) para file_id {file_id} não encontrados.")
         account_id = response.data['account_id']
 
-        # ETAPA 2: DOWNLOAD E SALVAMENTO (COM DIAGNÓSTICO PRIMITIVO)
+        logger.set_context(file_id=file_id, account_id=account_id)
+
+        # Faz o download do arquivo para um local temporário
+        logger.log('INFO', f'Iniciando download do arquivo de conciliação: {storage_path}')
         path_parts = storage_path.lstrip('/').split('/')
         bucket_name = path_parts[0]
         path_in_bucket = '/'.join(path_parts[1:])
+        file_content = supabase_processor.storage.from_(bucket_name).download(path=path_in_bucket)
         
-        try:
-            print(f"DIAGNÓSTICO: Tentando baixar {bucket_name}/{path_in_bucket}")
-            file_content = supabase_processor.storage.from_(bucket_name).download(path=path_in_bucket)
-            print(f"DIAGNÓSTICO: Download concluído, {len(file_content)} bytes recebidos.")
-        except Exception as download_error:
-            print(f"FALHA NO DOWNLOAD: {download_error}", file=sys.stderr)
-            print(traceback.format_exc(), file=sys.stderr)
-            raise  # Re-levanta a exceção para parar a execução
-
         with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
             tmp_file.write(file_content)
             temp_file_path = tmp_file.name
-        del file_content  # Limpa o conteúdo binário da memória
+        del file_content
+        logger.log('INFO', f'Arquivo salvo temporariamente em: {temp_file_path}')
 
-        # ETAPA 3: PROCESSAMENTO COM LOGGER SEGURO
-        logger = SupabaseLogger(supabase_processor)
-        logger.set_context(file_id=file_id, account_id=account_id)
+        # Monta o comando para executar o script de conciliação em um subprocesso
+        script_path = os.path.join(os.path.dirname(__file__), 'scripts', 'process_conciliation.py')
+        command = [
+            sys.executable,
+            script_path,
+            '--filepath', temp_file_path,
+            '--account-id', str(account_id),
+            '--file-id', str(file_id)
+        ]
         
-        logger.log('INFO', f'Iniciando processamento para o arquivo ID: {file_id}. Arquivo temporário em: {temp_file_path}')
+        logger.log('INFO', f'Executando comando: {" ".join(command)}')
         update_file_status(logger, supabase_processor, file_id, 'processing')
-        
-        processar_relatorio_conciliacao(supabase_processor, logger, temp_file_path, file_id, account_id)
+        logger.flush()
+
+        # Executa o script e aguarda a conclusão
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+
+        # O status final ('processed' ou 'error') é definido pelo próprio script.
+        # Apenas logamos o resultado aqui para fins de depuração.
+        if result.returncode == 0:
+            logger.log('INFO', f'Script de conciliação executado com sucesso. Saída: {result.stdout}')
+        else:
+            logger.log('CRITICAL', f'Falha na execução do script de conciliação. Return code: {result.returncode}. Erro: {result.stderr}')
+            # O script já deve ter logado o erro, mas atualizamos o status como fallback.
+            update_file_status(logger, supabase_processor, file_id, 'error', result.stderr or "Erro desconhecido no subprocesso.")
 
     except Exception as e:
-        error_message = f"Erro no processamento da conciliação: {e}"
+        error_message = f"Erro no orquestrador de processamento de conciliação: {e}"
         tb_str = traceback.format_exc()
-        
         if logger:
-            logger.log('ERROR', error_message, context={"traceback": tb_str})
+            logger.log('CRITICAL', error_message, context={"traceback": tb_str})
             update_file_status(logger, supabase_processor, file_id, 'error', error_message)
         else:
-            # Fallback para o console se o erro ocorrer antes do logger ser inicializado
             print(f"ERRO CRÍTICO (logger indisponível): {error_message}", file=sys.stderr)
             print(tb_str, file=sys.stderr)
             
     finally:
-        # Garante que o arquivo temporário seja sempre removido
         if temp_file_path and os.path.exists(temp_file_path):
             os.remove(temp_file_path)
-            # Usamos print aqui pois o logger pode já ter sido finalizado
             print(f"INFO: Arquivo temporário {temp_file_path} removido.")
         if logger:
             logger.flush()
