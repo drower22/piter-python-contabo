@@ -46,6 +46,11 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
         
         df.rename(columns=COLUMNS_MAPPING, inplace=True)
         logger.log('info', 'Colunas renomeadas.')
+
+        # Garante a conversão de tipo para a coluna de data
+        if 'sale_date' in df.columns:
+            df['sale_date'] = pd.to_datetime(df['sale_date'], errors='coerce')
+            logger.log('info', "Coluna 'sale_date' convertida para datetime.")
         
         final_columns = list(COLUMNS_MAPPING.values())
         df = df[final_columns]
