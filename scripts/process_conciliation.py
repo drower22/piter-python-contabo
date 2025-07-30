@@ -157,10 +157,26 @@ def process_conciliation_file(file_path: str, file_id: str, account_id: str):
             update_file_status(logger, supabase_client, file_id, 'processed', 'Arquivo vazio ou em formato inesperado.')
             return
 
-        df = df.iloc[3:].copy()
+        df = df.iloc[1:].copy()
         logger.log('info', f'[DIAGNÓSTICO] Passo 2: {len(df)} linhas após remover cabeçalho.')
+
+        # Define os nomes corretos das colunas para alinhar com a tabela do Supabase
+        column_names = [
+            'competencia', 'data_fato_gerador', 'fato_gerador', 'tipo_lancamento',
+            'descricao_lancamento', 'valor', 'base_calculo', 'percentual_taxa',
+            'pedido_associado_ifood', 'pedido_associado_ifood_curto', 'pedido_associado_externo',
+            'motivo_cancelamento', 'descricao_ocorrencia', 'data_criacao_pedido_associado',
+            'data_repasse_esperada', 'valor_transacao', 'loja_id', 'loja_id_curto',
+            'loja_id_externo', 'cnpj', 'titulo', 'data_faturamento',
+            'data_apuracao_inicio', 'data_apuracao_fim', 'valor_cesta_inicial',
+            'valor_cesta_final', 'responsavel_transacao', 'canal_vendas',
+            'impacto_no_repasse', 'parcela_pagamento'
+        ]
+        df.columns = column_names
+        logger.log('info', 'Colunas do DataFrame renomeadas para corresponder à tabela.')
+
         if not df.empty:
-            logger.log('info', f'[AMOSTRA DADOS] Após remover cabeçalho:\n{df.head(6).to_string()}')
+            logger.log('info', f'[AMOSTRA DADOS] Após renomear colunas:\n{df.head(6).to_string()}')
 
         df.dropna(how='all', inplace=True)
         logger.log('info', f'[DIAGNÓSTICO] Passo 3: {len(df)} linhas após remover linhas vazias.')
