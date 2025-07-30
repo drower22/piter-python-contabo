@@ -91,8 +91,7 @@ import os
 # Importa a lógica de processamento do script
 # Este endpoint é EXCLUSIVO para o processamento do relatório financeiro do iFood.
 from scripts.process_report import processar_relatorio_financeiro, init_supabase_client as init_processor_supabase, SupabaseLogger
-from scripts.process_conciliation import processar_relatorio_conciliacao
-
+from scripts.process_conciliation import process_conciliation_file, update_file_status
 
 @app.post("/upload/planilha-url", tags=["Uploads"], summary="Faz upload de uma planilha a partir de uma URL para o Supabase Storage")
 async def upload_planilha_url(
