@@ -62,16 +62,14 @@ def update_file_status(logger, supabase_client: Client, file_id: str, status: st
 def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
     """Lê a segunda aba de um arquivo Excel, trata NaNs e renomeia as colunas."""
     try:
-        logger.log('info', 'Iniciando leitura do arquivo Excel (segunda aba).')
+        logger.log('info', 'Iniciando leitura e limpeza dos dados do Excel...')
         df = pd.read_excel(file_path, sheet_name=1, header=0)
         df = df.replace({np.nan: None})
         logger.log('info', f'{len(df)} linhas lidas da planilha.')
-        
-        df.rename(columns=COLUMNS_MAPPING, inplace=True)
-        logger.log('info', 'Colunas da planilha renomeadas para o padrão do banco de dados.')
 
-        logger.log('info', 'Iniciando limpeza e conversão de tipos de dados.')
-        # --- Conversão Robusta de Tipos ---
+        df.rename(columns=COLUMNS_MAPPING, inplace=True)
+        logger.log('info', 'Colunas renomeadas com sucesso.')
+
         date_columns = [
             'competence_date', 'event_date', 'order_creation_date', 'expected_payment_date',
             'billing_date', 'settlement_start_date', 'settlement_end_date'
@@ -81,7 +79,6 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
                 df[col] = df[col].apply(lambda x: x.isoformat() if pd.notna(x) else None)
 
-        # IDs que devem ser string SEM .0
         id_columns = [
             'ifood_order_id', 'ifood_order_id_short', 'external_order_id',
             'store_id', 'store_id_short', 'store_id_external', 'cnpj'
@@ -103,17 +100,22 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
                     .str.replace(',', '.', regex=False)
                 )
                 df[col] = pd.to_numeric(df[col], errors='coerce')
-                logger.log('info', f"Coluna '{col}' limpa e convertida para numérico.")
         
         final_columns = list(COLUMNS_MAPPING.values())
         df = df[final_columns]
         logger.log('info', 'DataFrame finalizado e filtrado com as colunas corretas para o banco.')
 
-        # Gerar row_key (hash SHA256 da linha inteira, exceto metadados)
         def row_hash(row):
             concat = '|'.join([str(row[col]) if row[col] is not None else '' for col in final_columns])
             return hashlib.sha256(concat.encode('utf-8')).hexdigest()
         df['row_key'] = df.apply(row_hash, axis=1)
+
+        # Remover duplicatas da planilha antes de enviar para o banco
+        initial_rows = len(df)
+        df.drop_duplicates(subset=['row_key'], keep='first', inplace=True)
+        final_rows = len(df)
+        if initial_rows > final_rows:
+            logger.log('warning', f'{initial_rows - final_rows} linhas duplicadas foram removidas da planilha.')
 
         # --- Log Explícito dos Dados (10 Primeiras Linhas) ---
         logger.log('info', '>>> INÍCIO DA AMOSTRA DE DADOS PROCESSADOS (10 primeiras linhas) <<<')
@@ -126,6 +128,7 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
         logger.log('info', '>>> FIM DA AMOSTRA DE DADOS <<<')
 
         return df
+
     except Exception as e:
         logger.log('error', f'Falha ao ler ou limpar os dados do Excel: {e}')
         raise
