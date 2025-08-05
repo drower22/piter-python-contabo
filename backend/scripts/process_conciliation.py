@@ -1,6 +1,7 @@
 import os
 import sys
 import traceback
+import hashlib
 import uuid
 import json
 
