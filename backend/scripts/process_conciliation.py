@@ -100,6 +100,9 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
                     .str.replace(',', '.', regex=False)
                 )
                 df[col] = pd.to_numeric(df[col], errors='coerce')
+                # Correção para tax_percentage: dividir por 10 para ajustar formato (ex: 110 -> 11.0)
+                if col == 'tax_percentage':
+                    df[col] = df[col] / 10.0
         
         final_columns = list(COLUMNS_MAPPING.values())
         df = df[final_columns]
