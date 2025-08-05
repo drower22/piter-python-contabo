@@ -108,12 +108,20 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
         df = df[final_columns]
         logger.log('info', 'DataFrame finalizado e filtrado com as colunas corretas para o banco.')
 
+        # Gerar row_key (hash SHA256 da linha inteira, exceto metadados)
+        def row_hash(row):
+            concat = '|'.join([str(row[col]) if row[col] is not None else '' for col in final_columns])
+            return hashlib.sha256(concat.encode('utf-8')).hexdigest()
+        df['row_key'] = df.apply(row_hash, axis=1)
+
         # --- Log Explícito dos Dados (10 Primeiras Linhas) ---
         logger.log('info', '>>> INÍCIO DA AMOSTRA DE DADOS PROCESSADOS (10 primeiras linhas) <<<')
-        for index, row in df.head(10).iterrows():
-            logger.log('info', f'--- Linha {index+2} da Planilha ---')
+        logger.log('info', '\n================ AMOSTRA DAS 10 PRIMEIRAS LINHAS =================')
+        for idx, row in df.head(10).iterrows():
+            logger.log('info', f'Linha {idx}:')
             for col_name, value in row.items():
-                logger.log('info', f'    Coluna: {col_name:<25} | Valor: "{str(value):<30}" | Tipo: {type(value).__name__}')
+                logger.log('info', f'  Coluna: {col_name} | Valor: "{value}" | Tipo: {type(value).__name__}')
+        logger.log('info', '===============================================================\n')
         logger.log('info', '>>> FIM DA AMOSTRA DE DADOS <<<')
 
         return df
@@ -151,8 +159,8 @@ def save_data_in_batches(logger, supabase_client: Client, df: pd.DataFrame, acco
     for i in range(0, len(records_to_insert), batch_size):
         batch = records_to_insert[i:i + batch_size]
         try:
-            logger.log('info', f'Enviando lote {i // batch_size + 1}/{len(records_to_insert) // batch_size + 1} com {len(batch)} registros para o Supabase.')
-            supabase_client.table(TABLE_CONCILIATION).upsert(batch, on_conflict='id').execute()
+            logger.log('info', f'Enviando lote {i//batch_size+1}/{(len(records_to_insert)-1)//batch_size+1} para o Supabase...')
+            supabase_client.table(TABLE_CONCILIATION).upsert(batch, on_conflict='row_key').execute()
         except Exception as e:
             logger.log('error', f'Falha ao salvar lote de dados no Supabase: {e}')
             # Log de depuração para inspecionar o primeiro registro do lote que falhou

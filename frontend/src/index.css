@@ -1,0 +1,12 @@
+/**
+ * @file index.css
+ * @description Ponto de entrada para os estilos globais do Tailwind CSS.
+ * Este arquivo não contém CSS convencional, mas sim diretivas especiais do Tailwind.
+ * - `@tailwind base`: Injeta os estilos de base do Tailwind (reset, etc.).
+ * - `@tailwind components`: Injeta as classes de componentes do Tailwind.
+ * - `@tailwind utilities`: Injeta as classes de utilitários do Tailwind (ex: `flex`, `p-4`, `text-center`).
+ * Análise: As diretivas estão corretas. Os avisos persistentes de "Unknown at rule @tailwind" no linter são um sintoma CRÍTICO. Eles sugerem que o processo de build não está configurado corretamente para processar este arquivo como um arquivo Tailwind, o que explicaria a falha total dos estilos.
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
