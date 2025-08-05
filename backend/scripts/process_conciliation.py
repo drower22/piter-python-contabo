@@ -96,8 +96,8 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
                 df[col] = (
                     df[col]
                     .astype(str)
-                    .str.replace(r'[^0-9,-]', '', regex=True)
-                    .str.replace(',', '.', regex=False)
+                    .str.replace(r'[^0-9,\.-]', '', regex=True)  # Mantém vírgula e ponto
+                    .str.replace(',', '.', regex=False)           # Troca vírgula por ponto
                 )
                 df[col] = pd.to_numeric(df[col], errors='coerce')
                 # Correção para tax_percentage: dividir por 10 para ajustar formato (ex: 110 -> 11.0)
