@@ -79,7 +79,15 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
                 df[col] = df[col].apply(lambda x: x.isoformat() if pd.notna(x) else None)
-                logger.log('info', f"Coluna '{col}' convertida para string ISO 8601.")
+
+        # IDs que devem ser string SEM .0
+        id_columns = [
+            'ifood_order_id', 'ifood_order_id_short', 'external_order_id',
+            'store_id', 'store_id_short', 'store_id_external', 'cnpj'
+        ]
+        for col in id_columns:
+            if col in df.columns:
+                df[col] = df[col].astype(str).str.replace(r'\.0$', '', regex=True).replace('None', None)
 
         value_columns = [
             'gross_value', 'calculation_base_value', 'tax_percentage', 'transaction_value',
@@ -87,7 +95,12 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
         ]
         for col in value_columns:
             if col in df.columns:
-                df[col] = df[col].astype(str).str.replace(r'[^0-9,-]', '', regex=True).str.replace(',', '.', regex=False)
+                df[col] = (
+                    df[col]
+                    .astype(str)
+                    .str.replace(r'[^0-9,-]', '', regex=True)
+                    .str.replace(',', '.', regex=False)
+                )
                 df[col] = pd.to_numeric(df[col], errors='coerce')
                 logger.log('info', f"Coluna '{col}' limpa e convertida para numérico.")
         
@@ -159,7 +172,7 @@ def process_conciliation_file(logger, supabase_client: Client, file_path: str, f
         
         if df is not None and not df.empty:
             save_data_in_batches(logger, supabase_client, df, account_id, file_id)
-            update_file_status(logger, supabase_client, file_id, 'completed')
+            update_file_status(logger, supabase_client, file_id, 'processed')
             logger.log('info', 'Processamento do arquivo concluído com sucesso.')
         else:
             update_file_status(logger, supabase_client, file_id, 'error', 'O arquivo Excel está vazio ou não contém dados na segunda aba.')
