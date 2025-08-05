@@ -130,6 +130,8 @@ def save_data_in_batches(logger, supabase_client: Client, df: pd.DataFrame, acco
     df['raw_data'] = df.apply(lambda row: safe_to_json(row, logger), axis=1)
     logger.log('info', 'Serialização concluída.')
 
+    logger.log('info', f"[DEBUG] Colunas a serem salvas: {df.columns.tolist()}")
+
     records_to_insert = df.to_dict(orient='records')
     
     batch_size = 100
