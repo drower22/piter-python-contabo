@@ -1,59 +1,89 @@
 // @file: src/shared/components/ui/DateRangePicker.tsx
 // @description: A reusable date range picker component.
 
-import { useState } from 'react';
-import { DayPicker, type DateRange } from 'react-day-picker';
-import 'react-day-picker/dist/style.css';
-import { ptBR } from 'date-fns/locale';
-import { Calendar as CalendarIcon } from 'lucide-react';
+import * as React from 'react';
+import { DateRange as RDRDateRange } from 'react-date-range';
+import type { Range, RangeKeyDict } from 'react-date-range';
+import 'react-date-range/dist/styles.css';
+import 'react-date-range/dist/theme/default.css';
+import { pt } from 'date-fns/locale';
+import { cn } from '../../../lib/utils';
+import './date-range-custom.css';
+import { Button } from './button';
+
+// Adapter para compatibilizar a tipagem
+export interface DateRange {
+  from?: Date;
+  to?: Date;
+}
+
 
 interface DateRangePickerProps {
   dateRange: DateRange | undefined;
   setDateRange: (dateRange: DateRange | undefined) => void;
   className?: string;
+  onClose?: () => void;
 }
 
-export function DateRangePicker({ dateRange, setDateRange, className }: DateRangePickerProps) {
-  const [showDatePicker, setShowDatePicker] = useState(false);
+export function DateRangePicker({ dateRange, setDateRange, className, onClose }: DateRangePickerProps) {
+  // Estado interno para seleção temporária
+  const [pendingRange, setPendingRange] = React.useState<Range>({
+    startDate: dateRange?.from || undefined,
+    endDate: dateRange?.to || undefined,
+    key: 'selection',
+  });
 
-  const formatRange = (range: DateRange | undefined) => {
-    if (!range) {
-      return 'Selecione um período';
+  React.useEffect(() => {
+    setPendingRange({
+      startDate: dateRange?.from || undefined,
+      endDate: dateRange?.to || undefined,
+      key: 'selection',
+    });
+  }, [dateRange]);
+
+  function handleChange(ranges: RangeKeyDict) {
+    setPendingRange(ranges.selection);
+  }
+
+  const isValid = !!pendingRange.startDate && !!pendingRange.endDate;
+
+  function handleConfirm() {
+    if (pendingRange.startDate && pendingRange.endDate) {
+      setDateRange({ from: pendingRange.startDate, to: pendingRange.endDate });
+      onClose?.();
     }
-    if (range.from && range.to) {
-      return `${range.from.toLocaleDateString('pt-BR')} - ${range.to.toLocaleDateString('pt-BR')}`;
-    }
-    if (range.from) {
-      return `${range.from.toLocaleDateString('pt-BR')} - ...`;
-    }
-    return 'Selecione um período';
-  };
+  }
+
+  function handleCancel() {
+    onClose?.();
+  }
 
   return (
-    <div className={`relative ${className}`}>
-      <button
-        onClick={() => setShowDatePicker(!showDatePicker)}
-        className="w-full md:w-72 flex items-center justify-between text-left bg-gray-100 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-200 transition-colors"
-      >
-        <span>{formatRange(dateRange)}</span>
-        <CalendarIcon className="w-4 h-4 text-gray-500" />
-      </button>
-      {showDatePicker && (
-        <div className="absolute z-10 mt-2 bg-white border rounded-lg shadow-lg animate-fade-in-up">
-          <DayPicker
-            mode="range"
-            selected={dateRange}
-            onSelect={(range) => {
-              setDateRange(range);
-              if (range?.from && range.to) {
-                setShowDatePicker(false);
-              }
-            }}
-            locale={ptBR}
-            numberOfMonths={2}
-          />
-        </div>
-      )}
+    <div className={cn('flex flex-col items-center gap-4', className)}>
+      <RDRDateRange
+        ranges={[pendingRange]}
+        onChange={handleChange}
+        showMonthAndYearPickers={true}
+        months={2}
+        direction="horizontal"
+        locale={pt}
+        showDateDisplay={false}
+        weekdayDisplayFormat="EEEEE"
+        rangeColors={["#4B1F6F"]}
+        color="#4B1F6F"
+        editableDateInputs={false}
+        className="rounded-2xl shadow-xl border-none"
+        maxDate={new Date()}
+      />
+      <div className="flex w-full justify-end gap-2 p-4">
+        <Button onClick={handleCancel} variant="outline">
+          Cancelar
+        </Button>
+        <Button onClick={handleConfirm} disabled={!isValid}>
+          Confirmar
+        </Button>
+      </div>
     </div>
   );
 }
+

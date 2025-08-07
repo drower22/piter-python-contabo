@@ -1,43 +1,88 @@
-/**
- * @file src/contexts/AuthContext.tsx
- * @description Implementa o contexto de autenticação para gerenciar o estado de login do usuário.
- * - `AuthContext`: O contexto React que armazena o estado de autenticação.
- * - `AuthProvider`: O componente provedor que envolve a aplicação e fornece o valor do contexto.
- * - `useAuth`: Um hook customizado para acessar facilmente o contexto (isAuthenticated, login, logout) de qualquer componente.
- * Análise: Esta é uma implementação de mock para desenvolvimento. O estado de autenticação (`isAuthenticated`) é gerenciado pelo `useState` e não é persistido (ex: no localStorage), o que significa que o usuário é deslogado a cada atualização da página. Para a fase de desenvolvimento da UI, isso é perfeitamente adequado.
- */
-import { createContext, useState, useContext } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { FC } from 'react';
+import type { Session, User, AuthError, AuthChangeEvent } from '@supabase/supabase-js';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase'; // Import our configured client
 
+// Define the shape of the context value
 interface AuthContextType {
-  isAuthenticated: boolean;
-  login: () => void;
-  logout: () => void;
+  session: Session | null;
+  user: User | null;
+  loading: boolean;
+  login: (email: string, password: string) => Promise<{ error: AuthError | null }>;
+  logout: () => Promise<{ error: AuthError | null }>;
 }
 
+// Create the context with a default undefined value
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+// Create the provider component
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const navigate = useNavigate();
+  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const login = () => {
-    // In a real app, you'd have logic to verify credentials
-    setIsAuthenticated(true);
+  useEffect(() => {
+    // 1. Get the initial session
+    supabase.auth.getSession().then(({ data: { session } }: { data: { session: Session | null } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      setLoading(false);
+
+      // Lógica de redirecionamento para definir senha.
+      // Se o usuário tem uma sessão, mas o método de login (amr) não foi por senha,
+      // significa que ele veio de um link mágico e precisa criar uma.
+      const amr = (session?.user as any)?.amr;
+      if (session && amr && amr[0]?.method !== 'password') {
+        navigate('/update-password');
+      }
+    });
+
+    // 2. Listen for auth state changes
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, session: Session | null) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        setLoading(false);
+      }
+    );
+
+    // Cleanup listener on component unmount
+    return () => {
+      authListener?.subscription.unsubscribe();
+    };
+  }, []);
+
+  // Define the login and logout functions
+  const login = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return { error };
   };
 
-  const logout = () => {
-    // In a real app, you'd clear tokens, etc.
-    setIsAuthenticated(false);
+  const logout = async () => {
+    const { error } = await supabase.auth.signOut();
+    return { error };
   };
 
+  // The value provided to consuming components
+  const value = {
+    session,
+    user,
+    loading,
+    login,
+    logout,
+  };
+
+  // Don't render children until the initial session check is complete
   return (
-    <AuthContext.Provider value={{ isAuthenticated, login, logout }}>
-      {children}
+    <AuthContext.Provider value={value}>
+      {!loading && children}
     </AuthContext.Provider>
   );
 };
 
+// Create the custom hook to use the context
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {

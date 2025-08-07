@@ -7,6 +7,7 @@
  * - `handleSubmit`: Função que previne o comportamento padrão do formulário, executa o login e redireciona o usuário.
  * Análise: A página utiliza componentes de UI reutilizáveis (`Button`, `Input`), o que é uma boa prática. A lógica de autenticação é simples (mock) mas está corretamente integrada com o `AuthContext`. O layout e o estilo são totalmente controlados pelo Tailwind CSS.
  */
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../../../shared/components/Button';
 import { Input } from '../../../shared/components/Input';
@@ -16,11 +17,26 @@ export function LoginPage() {
   const navigate = useNavigate();
   const { login } = useAuth();
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    // Here you would typically validate form data
-    login();
-    navigate('/');
+    setError(null);
+    setLoading(true);
+
+    const { error: authError } = await login(email, password);
+
+    if (authError) {
+      setError(authError.message === 'Invalid login credentials' ? 'E-mail ou senha inválidos.' : 'Ocorreu um erro. Tente novamente.');
+    } else {
+      // The onAuthStateChange listener in AuthContext will handle the session update.
+      // We can navigate away, and protected routes will handle the rest.
+      navigate('/');
+    }
+    setLoading(false);
   }
 
   return (
@@ -36,15 +52,35 @@ export function LoginPage() {
             <label htmlFor="email" className="font-inter text-sm font-medium text-gray-700 block mb-2">
               E-mail
             </label>
-            <Input type="email" id="email" placeholder="seu@email.com" />
+            <Input 
+              type="email" 
+              id="email" 
+              placeholder="seu@email.com" 
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={loading}
+            />
           </div>
 
           <div>
             <label htmlFor="password" className="font-inter text-sm font-medium text-gray-700 block mb-2">
               Senha
             </label>
-            <Input type="password" id="password" placeholder="••••••••" />
+            <Input 
+              type="password" 
+              id="password" 
+              placeholder="••••••••" 
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
+            />
           </div>
+
+          {error && (
+            <div className="text-red-600 text-sm text-center">
+              {error}
+            </div>
+          )}
 
           <div className="text-right">
             <a href="#" className="font-inter text-sm text-brand-purple-dark hover:underline">
@@ -52,8 +88,8 @@ export function LoginPage() {
             </a>
           </div>
 
-          <Button type="submit">
-            Entrar
+          <Button type="submit" disabled={loading}>
+            {loading ? 'Entrando...' : 'Entrar'}
           </Button>
         </form>
       </div>

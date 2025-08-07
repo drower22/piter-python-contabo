@@ -11,6 +11,7 @@ import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Upload, BarChart2, LogOut } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
+import { StoreSelector } from '../ui/StoreSelector';
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -19,7 +20,7 @@ interface MainLayoutProps {
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/' },
   { icon: Upload, label: 'Upload de Planilhas', href: '/upload' },
-  { icon: BarChart2, label: 'Relatórios', href: '/reports' },
+  { icon: BarChart2, label: 'Resumos', href: '/summaries' },
 ];
 
 export function MainLayout({ children }: MainLayoutProps) {
@@ -38,7 +39,7 @@ export function MainLayout({ children }: MainLayoutProps) {
         {/* Navigation */}
         <nav className="flex-1 px-4 py-4 space-y-2">
           {navItems.map((item) => {
-            const isActive = location.pathname === item.href;
+            const isActive = location.pathname === item.href || (item.href === '/upload' && location.pathname.startsWith('/upload'));
             return (
               <Link
                 key={item.label}
@@ -55,6 +56,19 @@ export function MainLayout({ children }: MainLayoutProps) {
             );
           })}
         </nav>
+
+        {/* Store Selector - acima do botão sair */}
+        <div className="px-4 pt-2">
+          {/* TODO: Receber stores, selectedStoreId e onChange via props/context */}
+          <StoreSelector
+            stores={[
+              { id: '1', name: 'Loja A' },
+              { id: '2', name: 'Loja B' },
+            ]}
+            selectedStoreId={'1'}
+            onChange={() => {}}
+          />
+        </div>
 
         {/* Logout Button */}
         <div className="p-4 border-t border-gray-200">

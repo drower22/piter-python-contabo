@@ -1,5 +1,4 @@
-import * as React from "react";
-import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "./command";
+import { Command, CommandList, CommandGroup, CommandItem } from "./command";
 import { Badge } from "./badge";
 import { cn } from "../../../lib/utils";
 import { Check, ChevronDown } from "lucide-react";
@@ -19,21 +18,17 @@ interface Option {
 interface MultiSelectDropdownProps {
   options: Option[];
   selected: string[];
-  onChange: (selected: string[]) => void;
+  onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  maxSelection?: number;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
-export function MultiSelectDropdown({ options, selected, onChange, placeholder = "Selecione...", className }: MultiSelectDropdownProps) {
-  const [open, setOpen] = React.useState(false);
+export function MultiSelectDropdown({ options, selected, onChange, placeholder = "Selecione...", className, maxSelection, open, onOpenChange }: MultiSelectDropdownProps) {
   
-  const handleSelect = (value: string) => {
-    if (selected.includes(value)) {
-      onChange(selected.filter(v => v !== value));
-    } else if (selected.length < 4) {
-      onChange([...selected, value]);
-    }
-  };
+
 
   const selectedOptions = options.filter(opt => selected.includes(opt.value));
 
@@ -45,7 +40,7 @@ export function MultiSelectDropdown({ options, selected, onChange, placeholder =
           "w-full min-w-[220px] flex items-center justify-between rounded-md border bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-purple-dark gap-2",
           open && "ring-2 ring-brand-purple-dark"
         )}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => onOpenChange(!open)}
       >
         <div className="flex flex-wrap gap-1 items-center">
           {selectedOptions.length === 0 ? (
@@ -58,27 +53,28 @@ export function MultiSelectDropdown({ options, selected, onChange, placeholder =
                   backgroundColor: BRAND_COLORS[index % BRAND_COLORS.length],
                   color: '#fff'
                 }}
-                className="mr-1"
               >
                 {opt.label}
               </Badge>
             ))
           )}
         </div>
-        <ChevronDown className="w-4 h-4 ml-2 text-gray-400" />
+        <ChevronDown className="w-4 h-4 text-gray-400" />
       </button>
       {open && (
-        <div className="absolute z-50 mt-2 w-full min-w-[220px] rounded-md bg-white border shadow-lg">
+        <div className="absolute z-10 mt-2 w-full bg-white rounded-md shadow-lg border border-gray-200">
           <Command>
-            <CommandInput placeholder="Buscar..." />
             <CommandList>
-              <CommandEmpty>Nenhuma opção encontrada.</CommandEmpty>
               <CommandGroup>
                 {options.map(opt => (
                   <CommandItem
                     key={opt.value}
-                    onSelect={() => handleSelect(opt.value)}
-                    disabled={!selected.includes(opt.value) && selected.length >= 4}
+                    onSelect={() => {
+                      onChange(opt.value);
+                      onOpenChange(false);
+                    }}
+                    disabled={maxSelection ? !selected.includes(opt.value) && selected.length >= maxSelection : false}
+
                   >
                     <span className="flex items-center gap-2">
                       <span 

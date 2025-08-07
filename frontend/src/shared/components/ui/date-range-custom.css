@@ -1,0 +1,27 @@
+/* date-range-custom.css - sobrescreve estilos do react-date-range para visual maior */
+.rdrCalendarWrapper {
+  min-width: 700px;
+  max-width: 950px;
+  font-size: 1.18rem;
+}
+
+.rdrMonth {
+  width: 380px;
+  min-width: 340px;
+  margin: 0 18px;
+}
+
+.rdrDay {
+  width: 48px;
+  height: 48px;
+  font-size: 1.18rem;
+}
+
+.rdrMonthAndYearWrapper {
+  font-size: 1.18rem;
+  padding: 10px 0;
+}
+
+.rdrMonths {
+  justify-content: center;
+}

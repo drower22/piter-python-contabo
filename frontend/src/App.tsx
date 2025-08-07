@@ -1,5 +1,4 @@
 
-
 /**
  * @file App.tsx
  * @description Componente raiz da aplicação.

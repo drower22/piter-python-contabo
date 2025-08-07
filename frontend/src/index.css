@@ -10,3 +10,50 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+ 
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 273 56% 15%;
+ 
+    --card: 0 0% 100%;
+    --card-foreground: 273 56% 15%;
+ 
+    --popover: 0 0% 100%;
+    --popover-foreground: 273 56% 15%;
+ 
+    --primary: 273 56% 28%; /* Cor principal: brand-purple-dark */
+    --primary-foreground: 0 0% 98%;
+ 
+    --secondary: 273 30% 94%; /* Cor secundária: brand-gray-lilac */
+    --secondary-foreground: 273 56% 28%;
+ 
+    --muted: 273 30% 94%;
+    --muted-foreground: 273 30% 40%;
+ 
+    --accent: 273 30% 94%;
+    --accent-foreground: 273 56% 28%;
+ 
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 273 30% 88%;
+    --input: 273 30% 88%;
+    --ring: 273 56% 28%;
+ 
+    --radius: 0.5rem;
+  }
+ 
+  .dark {
+    /* Adicione aqui as variáveis para o modo escuro, se necessário */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
