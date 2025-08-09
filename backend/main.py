@@ -40,6 +40,32 @@ app = FastAPI(
 )
 print("[DEBUG] FastAPI inicializado.")
 
+def _ensure_unique_path(supabase_client: Client, bucket: str, user_id: str, filename: str) -> str:
+    """Retorna um caminho único dentro do bucket para evitar sobrescrita.
+
+    Se já existir um arquivo com o mesmo nome em `user_id/`, gera um nome com prefixo timestamp.
+    """
+    import datetime as _dt
+
+    folder = user_id.strip("/")
+    base_name = filename.strip("/")
+
+    # Tenta listar arquivos na pasta do usuário e verificar colisão exata do nome
+    try:
+        entries = supabase_client.storage.from_(bucket).list(path=folder)
+        existing_names = {e.get('name') for e in (entries or []) if isinstance(e, dict)}
+    except Exception:
+        # Se a listagem falhar por qualquer motivo, faz fallback para nome com timestamp
+        existing_names = set()
+
+    final_name = base_name
+    if base_name in existing_names:
+        ts = _dt.datetime.now().strftime('%Y%m%d-%H%M%S')
+        # Ex.: 20250809-181010_nome.xlsx
+        final_name = f"{ts}_" + base_name
+
+    return f"{folder}/{final_name}"
+
 @app.get("/", tags=["Status"], summary="Verifica se a API está online")
 def read_root():
     """Endpoint raiz para verificar a saúde da API."""
@@ -57,20 +83,21 @@ async def upload_planilha(
     """
     try:
         bucket_name = "financeiro"
-        path_in_bucket = f"{user_id}/{filename}"
+        # Gera caminho único (evita sobrescrever se já existir arquivo com mesmo nome)
+        path_in_bucket = _ensure_unique_path(supabase, bucket_name, user_id, filename)
 
         # Lê o conteúdo do arquivo em bytes
         contents = await file.read()
 
-        # Faz o upload para o Supabase Storage, sobrescrevendo se já existir (upsert=true)
+        # Faz o upload para o Supabase Storage SEM sobrescrever automaticamente
         response = supabase.storage.from_(bucket_name).upload(
             path=path_in_bucket,
             file=contents,
-            file_options={"cache-control": "3600", "upsert": "true"}
+            file_options={"cache-control": "3600", "upsert": "false"}
         )
 
-        # Salve o storage_path com a estrutura correta para uso futuro
-        storage_path = f"financeiro/{user_id}/{filename}"
+        # Salve o storage_path exatamente como foi salvo (pode ter prefixo de timestamp)
+        storage_path = f"financeiro/{path_in_bucket}"
 
         return JSONResponse(
             status_code=200,
@@ -113,7 +140,8 @@ async def upload_planilha_url(
         if tipo not in ["financeiro", "conciliacao"]:
             return JSONResponse(status_code=400, content={"error": "Tipo inválido. Use 'financeiro' ou 'conciliacao'."})
         bucket_name = tipo  # bucket = financeiro ou conciliacao
-        path_in_bucket = f"{user_id}/{filename}"
+        # Gera caminho único para evitar sobrescrita
+        path_in_bucket = _ensure_unique_path(supabase, bucket_name, user_id, filename)
 
         # Busca o header Authorization, se enviado
         headers = {}
@@ -126,15 +154,15 @@ async def upload_planilha_url(
         response.raise_for_status()
         contents = response.content
 
-        # Faz o upload para o Supabase Storage, sobrescrevendo se já existir (upsert=true)
+        # Faz o upload para o Supabase Storage SEM sobrescrever automaticamente
         upload_response = supabase.storage.from_(bucket_name).upload(
             path=path_in_bucket,
             file=contents,
-            file_options={"cache-control": "3600", "upsert": "true"}
+            file_options={"cache-control": "3600", "upsert": "false"}
         )
 
-        # O path retornado deve ser o LÓGICO, que será salvo no banco de dados.
-        storage_path_for_db = f"{tipo}/{user_id}/{filename}"
+        # O path retornado deve ser o LÓGICO, refletindo o nome final salvo
+        storage_path_for_db = f"{tipo}/{path_in_bucket}"
 
         return JSONResponse(
             status_code=200,

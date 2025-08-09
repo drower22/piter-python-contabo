@@ -34,12 +34,28 @@ def main():
         # Cria o caminho no bucket, incluindo a pasta do cliente e o nome do arquivo prefixado
         original_filename = os.path.basename(args.filepath)
         file_name_with_prefix = f"{args.file_id}_{original_filename}"
-        path_in_bucket = f"{args.account_id}/{file_name_with_prefix}"
+
+        # Garante nome único: se já existir um com o mesmo nome, prefixa com timestamp
+        account_folder = args.account_id.strip('/')
+        try:
+            entries = supabase.storage.from_(bucket_name).list(path=account_folder)
+            existing_names = {e.get('name') for e in (entries or []) if isinstance(e, dict)}
+        except Exception:
+            existing_names = set()
+
+        final_name = file_name_with_prefix
+        if file_name_with_prefix in existing_names:
+            from datetime import datetime
+            ts = datetime.now().strftime('%Y%m%d-%H%M%S')
+            final_name = f"{ts}_" + file_name_with_prefix
+
+        path_in_bucket = f"{account_folder}/{final_name}"
 
         print(f"Iniciando upload de '{args.filepath}' para o caminho '{path_in_bucket}' no bucket '{bucket_name}'...")
 
         # Define as opções do arquivo, incluindo o Content-Type correto para .xlsx
-        file_options = {"cache-control": "3600", "upsert": "true"}
+        # NUNCA sobrescrever: upsert = false
+        file_options = {"cache-control": "3600", "upsert": "false"}
         if original_filename.endswith('.xlsx'):
             file_options['content-type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             print(f"INFO: Content-Type para .xlsx definido como '{file_options['content-type']}'")
