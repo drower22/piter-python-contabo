@@ -2,7 +2,7 @@ import os
 import sys
 import subprocess
 import traceback
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -128,8 +128,6 @@ async def upload_planilha(
         raise HTTPException(status_code=500, detail=f"Ocorreu um erro no upload: {str(e)}")
 
 import requests  # Adicionado para download de arquivos via URL
-
-from fastapi import Request, BackgroundTasks
 from pydantic import BaseModel
 import tempfile
 import os
