@@ -96,18 +96,35 @@ def update_file_status(logger: SupabaseLogger, supabase: Client, file_id: str, s
 def read_and_clean_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
     logger.log('info', f"Iniciando leitura do arquivo: {file_path}")
     try:
-        df = pd.read_excel(file_path, dtype=str)
+        # 0. Detecta automaticamente a linha de cabeçalho nas primeiras linhas
+        import pandas as _pd
+        sample = _pd.read_excel(file_path, header=None, nrows=10)
+        def _norm(s):
+            return str(s).lower().strip().replace(' ', '_').replace('n°', 'numero').replace('ç', 'c').replace('ã', 'a').replace('é', 'e')
+        # Conjunto de colunas indicativas do relatório financeiro
+        indicative = {
+            'numero_pedido', 'pedido_id_completo', 'total_do_pedido', 'valor_dos_itens',
+            'taxa_de_entrega', 'taxa_de_servico', 'data_de_repasse', 'valor_liquido'
+        }
+        best_row, best_score = 0, -1
+        for r in range(sample.shape[0]):
+            row_vals = [_norm(v) for v in list(sample.iloc[r].values)]
+            score = sum(1 for v in row_vals if v in indicative)
+            if score > best_score:
+                best_score = score
+                best_row = r
+        # Se encontrou uma linha com ao menos 3 colunas indicativas, usa como header
+        if best_score >= 3:
+            logger.log('info', f"Cabeçalho detectado automaticamente na linha {best_row} (score={best_score}).")
+            df = pd.read_excel(file_path, header=best_row, dtype=str)
+        else:
+            df = pd.read_excel(file_path, dtype=str)
         logger.log('info', f"{len(df)} linhas brutas lidas do arquivo.")
 
         # 1. Normaliza os nomes das colunas para bater com o schema do banco
         df.columns = [c.lower().strip().replace(' ', '_').replace('n°', 'numero').replace('ç', 'c').replace('ã', 'a').replace('é', 'e') for c in df.columns]
         logger.log('info', f'Nomes de colunas normalizados: {list(df.columns)}')
         # print(f'[DEBUG] Colunas normalizadas: {list(df.columns)}')  # Removido para evitar excesso de logs
-
-        # 1.1 Validação básica de tipo de arquivo: deve parecer FINANCEIRO
-        required_any = ['numero_pedido', 'pedido_id_completo', 'valor_dos_itens', 'total_do_pedido']
-        if not any(col in df.columns for col in required_any):
-            raise ValueError("Arquivo nao parece ser do tipo FINANCEIRO (colunas essenciais ausentes). Verifique se o nome/rota estao corretos.")
 
         # 2. Define as colunas que precisam de tratamento especial (dinheiro, percentual, data)
         money_columns = [
@@ -154,11 +171,6 @@ def read_and_clean_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
                     return None
             return None
 
-        # 4.a Aplicar conversao para todas as colunas monetarias conhecidas
-        for col in money_columns:
-            if col in df.columns:
-                df[col] = df[col].apply(parse_as_decimal)
-
         # 4. Corrigir apenas a coluna 'total_do_pedido' com lógica definitiva para todos os formatos
         if 'total_do_pedido' in df.columns:
             def parse_total_do_pedido(value):
@@ -203,7 +215,7 @@ def read_and_clean_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
                 # Garante apenas uma casa decimal
                 return round(val, 1)
             except Exception:
-                
+                # logger.log('debug', f"Valor inválido para conversão de percentual: {value}")
                 return None
         for col in percent_columns:
             if col in df.columns:
