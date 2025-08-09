@@ -104,6 +104,11 @@ def read_and_clean_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
         logger.log('info', f'Nomes de colunas normalizados: {list(df.columns)}')
         # print(f'[DEBUG] Colunas normalizadas: {list(df.columns)}')  # Removido para evitar excesso de logs
 
+        # 1.1 Validação básica de tipo de arquivo: deve parecer FINANCEIRO
+        required_any = ['numero_pedido', 'pedido_id_completo', 'valor_dos_itens', 'total_do_pedido']
+        if not any(col in df.columns for col in required_any):
+            raise ValueError("Arquivo nao parece ser do tipo FINANCEIRO (colunas essenciais ausentes). Verifique se o nome/rota estao corretos.")
+
         # 2. Define as colunas que precisam de tratamento especial (dinheiro, percentual, data)
         money_columns = [
             'total_do_pedido', 'valor_dos_itens', 'taxa_de_entrega', 'taxa_de_servico',
@@ -148,6 +153,11 @@ def read_and_clean_data(logger: SupabaseLogger, file_path: str) -> pd.DataFrame:
                 except (ValueError, TypeError):
                     return None
             return None
+
+        # 4.a Aplicar conversao para todas as colunas monetarias conhecidas
+        for col in money_columns:
+            if col in df.columns:
+                df[col] = df[col].apply(parse_as_decimal)
 
         # 4. Corrigir apenas a coluna 'total_do_pedido' com lógica definitiva para todos os formatos
         if 'total_do_pedido' in df.columns:

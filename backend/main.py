@@ -75,14 +75,25 @@ def read_root():
 async def upload_planilha(
     file: UploadFile = File(..., description="Arquivo de planilha (xlsx, csv) para upload."),
     user_id: str = Form(..., description="ID do usuário ou conta que está enviando o arquivo."),
-    filename: str = Form(..., description="Nome original do arquivo a ser salvo no bucket.")
+    filename: str = Form(..., description="Nome original do arquivo a ser salvo no bucket."),
+    background_tasks: BackgroundTasks = None
 ):
     """
     Recebe um arquivo de planilha via formulário multipart e o envia para o bucket 'financeiro' no Supabase Storage.
     O caminho no bucket será estruturado como: `user_id/filename`.
     """
     try:
-        bucket_name = "financeiro"
+        # Autodetecção do tipo pelo nome do arquivo
+        fname_l = filename.lower()
+        if ("conciliacao" in fname_l) or ("conciliação" in fname_l):
+            bucket_name = "conciliacao"
+            detected_type = "conciliacao"
+        elif "financeiro" in fname_l:
+            bucket_name = "financeiro"
+            detected_type = "financeiro"
+        else:
+            raise HTTPException(status_code=400, detail="Nome do arquivo deve conter 'financeiro' ou 'conciliacao' para autodetecção.")
+
         # Gera caminho único (evita sobrescrever se já existir arquivo com mesmo nome)
         path_in_bucket = _ensure_unique_path(supabase, bucket_name, user_id, filename)
 
@@ -97,13 +108,37 @@ async def upload_planilha(
         )
 
         # Salve o storage_path exatamente como foi salvo (pode ter prefixo de timestamp)
-        storage_path = f"financeiro/{path_in_bucket}"
+        storage_path = f"{bucket_name}/{path_in_bucket}"
+
+        # Cria registro em 'received_files' e dispara processamento FINANCEIRO
+        import uuid as _uuid
+        file_id = str(_uuid.uuid4())
+        try:
+            supabase.table('received_files').insert({
+                'id': file_id,
+                'account_id': user_id,
+                'storage_path': storage_path,
+                'status': 'uploaded'
+            }).execute()
+        except Exception as e:
+            # Não falha o upload por erro de DB, mas reporta
+            print(f"[WARN] Falha ao inserir em received_files: {e}")
+
+        # Dispara processamento correto em background
+        try:
+            if detected_type == 'financeiro':
+                background_tasks.add_task(run_processing_financeiro, file_id)
+            else:
+                background_tasks.add_task(run_processing_conciliacao, file_id, storage_path)
+        except Exception as e:
+            print(f"[WARN] Falha ao agendar processamento ({detected_type}): {e}")
 
         return JSONResponse(
             status_code=200,
             content={
-                "message": "Upload realizado com sucesso!",
-                "path": storage_path
+                "message": "Upload realizado com sucesso e processamento agendado!",
+                "path": storage_path,
+                "file_id": file_id
             }
         )
     except Exception as e:
@@ -128,7 +163,8 @@ async def upload_planilha_url(
     file_url: str = Form(..., description="URL do arquivo de planilha (xlsx, csv) para upload."),
     user_id: str = Form(..., description="ID do usuário ou conta que está enviando o arquivo."),
     filename: str = Form(..., description="Nome original do arquivo a ser salvo no bucket."),
-    tipo: str = Form(..., description="Tipo da planilha: financeiro ou conciliacao.")
+    tipo: str = Form(..., description="Tipo da planilha: financeiro ou conciliacao."),
+    background_tasks: BackgroundTasks = None
 ):
     """
     Faz o download do arquivo da URL fornecida e envia para o bucket 'financeiro' no Supabase Storage.
@@ -164,11 +200,34 @@ async def upload_planilha_url(
         # O path retornado deve ser o LÓGICO, refletindo o nome final salvo
         storage_path_for_db = f"{tipo}/{path_in_bucket}"
 
+        # Cria registro em 'received_files' e agenda processamento conforme tipo
+        import uuid as _uuid
+        file_id = str(_uuid.uuid4())
+        try:
+            supabase.table('received_files').insert({
+                'id': file_id,
+                'account_id': user_id,
+                'storage_path': storage_path_for_db,
+                'status': 'uploaded'
+            }).execute()
+        except Exception as e:
+            print(f"[WARN] Falha ao inserir em received_files: {e}")
+
+        try:
+            if background_tasks is not None:
+                if tipo == 'financeiro':
+                    background_tasks.add_task(run_processing_financeiro, file_id)
+                else:
+                    background_tasks.add_task(run_processing_conciliacao, file_id, storage_path_for_db)
+        except Exception as e:
+            print(f"[WARN] Falha ao agendar processamento ({tipo}): {e}")
+
         return JSONResponse(
             status_code=200,
             content={
-                "message": f"Upload realizado com sucesso via URL para {tipo}!",
-                "path": storage_path_for_db
+                "message": f"Upload realizado com sucesso via URL para {tipo} e processamento agendado!",
+                "path": storage_path_for_db,
+                "file_id": file_id
             }
         )
     except Exception as e:
