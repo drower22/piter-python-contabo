@@ -4,6 +4,7 @@ import traceback
 import hashlib
 import uuid
 import json
+from datetime import datetime, timezone
 
 import pandas as pd
 import numpy as np
@@ -48,14 +49,42 @@ COLUMNS_MAPPING = {
 }
 
 def update_file_status(logger, supabase_client: Client, file_id: str, status: str, details: str = None):
-    """Atualiza o status de um arquivo na tabela 'files'."""
+    """Atualiza o status do registro em `public.received_files` e mantém consistência de colunas auxiliares.
+
+    Regras:
+    - pending: somente status; zera processed_at e erros
+    - processing: idem pending
+    - processed: seta processed_at = agora (UTC) e limpa erros
+    - error: mantém processed_at nulo e preenche error_message/error_details
+    """
     try:
+        now_utc = datetime.now(timezone.utc).isoformat()
         update_data = {'status': status}
-        # A coluna 'details' foi desativada temporariamente para compatibilidade.
-        # if details:
-        #     update_data['details'] = details
+
+        if status in ('pending', 'processing'):
+            update_data.update({
+                'processed_at': None,
+                'error_message': None,
+                'error_details': None,
+            })
+        elif status == 'processed':
+            update_data.update({
+                'processed_at': now_utc,
+                'error_message': None,
+                'error_details': None,
+            })
+        elif status == 'error':
+            short_msg = None
+            if details:
+                short_msg = details.splitlines()[0][:250]
+            update_data.update({
+                'processed_at': None,
+                'error_message': short_msg,
+                'error_details': details,
+            })
+
         supabase_client.table(TABLE_FILES).update(update_data).eq('id', file_id).execute()
-        logger.log('info', f"Status do arquivo {file_id} atualizado para '{status}'.")
+        logger.log('info', f"[files] id={file_id} -> status='{status}' atualizado com sucesso.")
     except Exception as e:
         logger.log('error', f"Falha ao atualizar status do arquivo {file_id}: {e}")
 
