@@ -10,22 +10,7 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 import uuid
 
-# --- Ajuste robusto de caminho para localizar o pacote 'modules' ---
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_CANDIDATES = [
-    _HERE,
-    os.path.abspath(os.path.join(_HERE, '..')),            # raiz do projeto (ex.: contem 'backend' e 'modules')
-    os.path.abspath(os.path.join(_HERE, '..', 'backend')), # quando main.py é copiado para /app e 'backend/modules' ficou junto
-]
-for _p in _CANDIDATES:
-    _modules_dir = os.path.join(_p, 'modules')
-    if os.path.isdir(_modules_dir) and _p not in sys.path:
-        sys.path.insert(0, _p)
-        break
-
-from modules.ifood import ifood_router
-
-print("[DEBUG] Iniciando API iFood Sales Concierge...")
+print("[DEBUG] Iniciando Dex API...")
 
 # Carrega as variáveis de ambiente
 load_dotenv()
@@ -52,15 +37,11 @@ print("[DEBUG] Cliente Supabase inicializado.")
 
 # Cria a aplicação FastAPI
 app = FastAPI(
-    title="iFood Sales Concierge API",
-    description="API para processar e gerenciar planilhas de vendas.",
+    title="Dex API",
+    description="API para uploads Financeiro/Conciliação e processamento.",
     version="1.0.0"
 )
 print("[DEBUG] FastAPI inicializado.")
-
-# Inclui as rotas do módulo iFood
-app.include_router(ifood_router)
-print("[DEBUG] Rotas do módulo iFood incluídas.")
 
 # Servir frontend estático (diretório na raiz do projeto)
 _BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -96,7 +77,7 @@ def _ensure_unique_path(supabase_client: Client, bucket: str, user_id: str, file
 @app.get("/", tags=["Status"], summary="Verifica se a API está online")
 def read_root():
     """Endpoint raiz para verificar a saúde da API."""
-    return {"status": "ok", "message": "Bem-vindo à API do iFood Sales Concierge!"}
+    return {"status": "ok", "message": "Bem-vindo à Dex API!"}
 
 @app.post("/upload/planilha", tags=["Uploads"], summary="Faz upload de uma planilha para o Supabase Storage")
 async def upload_planilha(
