@@ -43,10 +43,14 @@ app = FastAPI(
 )
 print("[DEBUG] FastAPI inicializado.")
 
-# Servir frontend estático (diretório na raiz do projeto)
+# Servir frontend estático (somente se existir)
 _BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 _FRONTEND_DIR = os.path.abspath(os.path.join(_BACKEND_DIR, '..', 'frontend'))
-app.mount("/frontend", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")
+if os.path.isdir(_FRONTEND_DIR):
+    app.mount("/frontend", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")
+    print(f"[DEBUG] Frontend montado em /frontend a partir de {_FRONTEND_DIR}")
+else:
+    print(f"[WARN] Diretório de frontend não encontrado: {_FRONTEND_DIR}. Rotas estáticas não serão montadas.")
 
 def _ensure_unique_path(supabase_client: Client, bucket: str, user_id: str, filename: str) -> str:
     """Retorna um caminho único dentro do bucket para evitar sobrescrita.
