@@ -106,12 +106,32 @@ def update_file_status(logger, supabase_client: Client, file_id: str, status: st
         logger.log('error', f"Falha ao atualizar status do arquivo {file_id}: {e}")
 
 def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
-    """Lê a segunda aba de um arquivo Excel, trata NaNs e renomeia as colunas."""
+    """Lê a segunda aba do Excel, cria dump bruto por linha e aplica limpeza/mapeamento."""
     try:
-        logger.log('info', 'Iniciando leitura e limpeza dos dados do Excel...')
-        df = pd.read_excel(file_path, sheet_name=1, header=0)
+        logger.log('info', 'Iniciando leitura da planilha (aba 2)...')
+        # Lê os dados originais preservando tipos o máximo possível
+        original_df = pd.read_excel(file_path, sheet_name=1, header=0, dtype=object)
+        logger.log('info', f'{len(original_df)} linhas lidas da planilha.')
+
+        # Gera dump bruto literal por linha (valores convertidos a string, NaN/None -> string vazia)
+        def to_raw_original(row: pd.Series) -> str:
+            raw = {}
+            for k, v in row.to_dict().items():
+                try:
+                    if pd.isna(v):
+                        raw[k] = ''
+                    else:
+                        raw[k] = str(v)
+                except Exception:
+                    raw[k] = str(v) if v is not None else ''
+            return json.dumps(raw, ensure_ascii=False)
+
+        raw_original_series = original_df.apply(to_raw_original, axis=1)
+
+        # Passa a trabalhar numa cópia que será limpa
+        df = original_df.copy()
+        # Converte NaN para None no dataframe antes do restante do pipeline
         df = df.replace({np.nan: None})
-        logger.log('info', f'{len(df)} linhas lidas da planilha.')
 
         df.rename(columns=COLUMNS_MAPPING, inplace=True)
         logger.log('info', 'Colunas renomeadas com sucesso.')
@@ -176,6 +196,9 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
             key_str = '|'.join(parts)
             return hashlib.sha256(key_str.encode('utf-8')).hexdigest()
         df['natural_key'] = df.apply(build_natural_key, axis=1)
+
+        # Anexa o dump bruto original alinhado por índice
+        df['raw_data_original'] = raw_original_series
 
         # Remover duplicatas da planilha pelo natural_key (não por conteúdo)
         initial_rows = len(df)
@@ -253,21 +276,14 @@ def save_data_in_batches(logger, supabase_client: Client, df: pd.DataFrame, acco
         batch = records_to_insert[i:i + batch_size]
         try:
             logger.log('info', f'Enviando lote {i//batch_size+1}/{(len(records_to_insert)-1)//batch_size+1} para o Supabase...')
-            # Padrão definitivo: upsert por 'id'
+            # Padrão definitivo: upsert por 'id' (sem fallbacks)
             supabase_client.table(TABLE_CONCILIATION).upsert(batch, on_conflict='id').execute()
         except Exception as e:
             msg = str(e)
             logger.log('error', f"Falha ao salvar lote via upsert por 'id': {msg}")
-            # Fallback temporário: insert simples se o índice único em 'id' ainda não existir
-            try:
-                supabase_client.table(TABLE_CONCILIATION).insert(batch).execute()
-                logger.log('info', 'Fallback: insert simples bem-sucedido (sem upsert).')
-                continue
-            except Exception as e2:
-                logger.log('error', f'Fallback insert também falhou: {e2}')
-                if batch:
-                    logger.log('debug', f'Amostra do primeiro registro do lote que falhou: {json.dumps(batch[0], default=str)}')
-                raise
+            if batch:
+                logger.log('debug', f'Amostra do primeiro registro do lote que falhou: {json.dumps(batch[0], default=str)}')
+            raise
     logger.log('info', 'Todos os lotes foram salvos com sucesso.')
 
 def process_conciliation_file(logger, supabase_client: Client, file_path: str, file_id: str, account_id: str):
