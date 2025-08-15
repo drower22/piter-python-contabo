@@ -200,12 +200,8 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
         # Anexa o dump bruto original alinhado por índice
         df['raw_data_original'] = raw_original_series
 
-        # Remover duplicatas da planilha pelo natural_key (não por conteúdo)
-        initial_rows = len(df)
-        df.drop_duplicates(subset=['natural_key'], keep='first', inplace=True)
-        final_rows = len(df)
-        if initial_rows > final_rows:
-            logger.log('warning', f'{initial_rows - final_rows} linhas duplicadas (por natural_key) foram removidas da planilha.')
+        # Não remover duplicatas: manter 100% das linhas conforme planilha
+        logger.log('info', 'Deduplicação desativada: todas as linhas da planilha serão mantidas.')
 
         # --- Log Explícito dos Dados (10 Primeiras Linhas) ---
         logger.log('info', '>>> INÍCIO DA AMOSTRA DE DADOS PROCESSADOS (10 primeiras linhas) <<<')
