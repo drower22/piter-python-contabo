@@ -239,8 +239,12 @@ def save_data_in_batches(logger, supabase_client: Client, df: pd.DataFrame, acco
 
     logger.log('info', f"[DEBUG] Colunas a serem salvas: {df.columns.tolist()}")
 
-    # Converte DataFrame para lista de dicionários e sanitiza NaN/Inf
-    records_to_insert = [_sanitize_record(rec) for rec in df.to_dict(orient='records')]
+    # Converte DataFrame para lista de dicionários, remove content_hash (coluna opcional) e sanitiza NaN/Inf
+    records_to_insert = []
+    for rec in df.to_dict(orient='records'):
+        if 'content_hash' in rec:
+            rec = {k: v for k, v in rec.items() if k != 'content_hash'}
+        records_to_insert.append(_sanitize_record(rec))
     
     batch_size = 100
     for i in range(0, len(records_to_insert), batch_size):
@@ -250,7 +254,21 @@ def save_data_in_batches(logger, supabase_client: Client, df: pd.DataFrame, acco
             # Upsert idempotente pela natural_key: insere novos, atualiza alterados
             supabase_client.table(TABLE_CONCILIATION).upsert(batch, on_conflict='natural_key').execute()
         except Exception as e:
-            logger.log('error', f'Falha ao salvar lote de dados no Supabase: {e}')
+            msg = str(e)
+            logger.log('error', f'Falha ao salvar lote de dados no Supabase: {msg}')
+            # Tolerância: se a tabela não tiver content_hash, remove a coluna e tenta novamente
+            if 'content_hash' in msg:
+                logger.log('warning', "Coluna 'content_hash' ausente na tabela. Removendo do lote e tentando novamente.")
+                batch_wo_ch = [{k: v for k, v in rec.items() if k != 'content_hash'} for rec in batch]
+                try:
+                    supabase_client.table(TABLE_CONCILIATION).upsert(batch_wo_ch, on_conflict='natural_key').execute()
+                    logger.log('info', 'Reenvio sem content_hash bem-sucedido.')
+                    continue
+                except Exception as e2:
+                    logger.log('error', f'Reenvio sem content_hash também falhou: {e2}')
+                    if batch_wo_ch:
+                        logger.log('debug', f'Amostra (sem content_hash): {json.dumps(batch_wo_ch[0], default=str)}')
+                    raise
             # Log de depuração para inspecionar o primeiro registro do lote que falhou
             if batch:
                 logger.log('debug', f'Amostra do primeiro registro do lote que falhou: {json.dumps(batch[0], default=str)}')
