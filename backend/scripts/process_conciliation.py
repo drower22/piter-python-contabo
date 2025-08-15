@@ -239,11 +239,13 @@ def save_data_in_batches(logger, supabase_client: Client, df: pd.DataFrame, acco
 
     logger.log('info', f"[DEBUG] Colunas a serem salvas: {df.columns.tolist()}")
 
-    # Converte DataFrame para lista de dicionários, remove content_hash (coluna opcional) e sanitiza NaN/Inf
+    # Converte DataFrame para lista de dicionários, remove colunas opcionais
+    # (content_hash, natural_key) para compatibilidade com schema atual e sanitiza NaN/Inf
     records_to_insert = []
     for rec in df.to_dict(orient='records'):
-        if 'content_hash' in rec:
-            rec = {k: v for k, v in rec.items() if k != 'content_hash'}
+        for drop_col in ('content_hash', 'natural_key'):
+            if drop_col in rec:
+                rec = {k: v for k, v in rec.items() if k != drop_col}
         records_to_insert.append(_sanitize_record(rec))
     
     batch_size = 100
@@ -269,6 +271,25 @@ def save_data_in_batches(logger, supabase_client: Client, df: pd.DataFrame, acco
                     if batch_wo_ch:
                         logger.log('debug', f'Amostra (sem content_hash): {json.dumps(batch_wo_ch[0], default=str)}')
                     raise
+            # Tolerância: se a tabela não tiver natural_key, tentar upsert por 'id' ou insert simples
+            if 'natural_key' in msg:
+                logger.log('warning', "Coluna/índice 'natural_key' ausente para upsert. Tentando fallback por 'id'.")
+                try:
+                    supabase_client.table(TABLE_CONCILIATION).upsert(batch, on_conflict='id').execute()
+                    logger.log('info', "Reenvio com on_conflict='id' bem-sucedido.")
+                    continue
+                except Exception as e3:
+                    logger.log('warning', f"Upsert por 'id' falhou: {e3}. Tentando insert simples.")
+                    try:
+                        supabase_client.table(TABLE_CONCILIATION).insert(batch).execute()
+                        logger.log('info', 'Insert simples bem-sucedido (sem upsert).')
+                        continue
+                    except Exception as e4:
+                        logger.log('error', f'Insert simples também falhou: {e4}')
+                        # Log de depuração do primeiro registro
+                        if batch:
+                            logger.log('debug', f'Amostra do primeiro registro do lote que falhou: {json.dumps(batch[0], default=str)}')
+                        raise
             # Log de depuração para inspecionar o primeiro registro do lote que falhou
             if batch:
                 logger.log('debug', f'Amostra do primeiro registro do lote que falhou: {json.dumps(batch[0], default=str)}')
