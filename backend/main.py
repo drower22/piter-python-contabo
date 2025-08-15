@@ -2,10 +2,14 @@ import os
 import sys
 import subprocess
 import traceback
+import re
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks, Request
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from supabase import create_client, Client
 from dotenv import load_dotenv
+import uuid
+from modules.ifood import ifood_router
 
 print("[DEBUG] Iniciando API iFood Sales Concierge...")
 
@@ -39,6 +43,15 @@ app = FastAPI(
     version="1.0.0"
 )
 print("[DEBUG] FastAPI inicializado.")
+
+# Inclui as rotas do módulo iFood
+app.include_router(ifood_router)
+print("[DEBUG] Rotas do módulo iFood incluídas.")
+
+# Servir frontend estático (diretório na raiz do projeto)
+_BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+_FRONTEND_DIR = os.path.abspath(os.path.join(_BACKEND_DIR, '..', 'frontend'))
+app.mount("/frontend", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")
 
 def _ensure_unique_path(supabase_client: Client, bucket: str, user_id: str, filename: str) -> str:
     """Retorna um caminho único dentro do bucket para evitar sobrescrita.
@@ -126,6 +139,135 @@ async def upload_planilha(
     except Exception as e:
         # Em caso de erro, retorna uma resposta com status 500
         raise HTTPException(status_code=500, detail=f"Ocorreu um erro no upload: {str(e)}")
+
+# =======================
+# Endpoints Frontend Aux
+# =======================
+
+@app.post("/frontend/upload/financeiro", tags=["Frontend"], summary="Frontend: Upload para bucket financeiro via script e cria registro")
+async def frontend_upload_financeiro(
+    file: UploadFile = File(...),
+    account_id: str = Form(...),
+    file_id: str = Form(None)
+):
+    """
+    Recebe arquivo do frontend, usa scripts/upload_to_bucket.py para enviar ao bucket 'financeiro',
+    cria registro em received_files e retorna file_id e storage_path.
+    """
+    import tempfile
+    try:
+        # Gera file_id se não enviado
+        file_id = file_id or str(uuid.uuid4())
+
+        # Salva arquivo temporário
+        suffix = os.path.splitext(file.filename or "")[1] or ".bin"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            contents = await file.read()
+            tmp.write(contents)
+            temp_path = tmp.name
+
+        # Executa o script de upload
+        script_path = os.path.join(os.path.dirname(__file__), 'scripts', 'upload_to_bucket.py')
+        cmd = [
+            sys.executable,
+            script_path,
+            "--filepath", temp_path,
+            "--bucket-name", "financeiro",
+            "--file-id", file_id,
+            "--account-id", account_id,
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+
+        if proc.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"Falha no upload: {proc.stderr.strip()}")
+
+        # Extrai caminho do stdout do script
+        stdout = proc.stdout
+        # Ex.: SUCESSO: ... caminho 'ACCOUNT/FINALNAME' no bucket 'financeiro'
+        m = re.search(r"caminho '([^']+)' no bucket '([^']+)'", stdout)
+        if not m:
+            raise HTTPException(status_code=500, detail=f"Upload ok, mas não foi possível obter o caminho salvo. STDOUT: {stdout}")
+        path_in_bucket, bucket = m.group(1), m.group(2)
+        storage_path = f"{bucket}/{path_in_bucket}"
+
+        # Cria/insere registro em received_files
+        record = {
+            "id": file_id,
+            "account_id": account_id,
+            "storage_path": storage_path,
+            "status": "pending",
+        }
+        try:
+            supabase.table('received_files').insert(record).execute()
+        except Exception as e:
+            # Se já existir, apenas atualiza o caminho/status
+            try:
+                supabase.table('received_files').update({"storage_path": storage_path, "status": "pending"}).eq('id', file_id).execute()
+            except Exception as e2:
+                raise HTTPException(status_code=500, detail=f"Falha ao registrar arquivo no banco: {e2}")
+
+        return {"message": "Upload financeiro realizado com sucesso.", "file_id": file_id, "storage_path": storage_path}
+    finally:
+        try:
+            if 'temp_path' in locals() and os.path.exists(temp_path):
+                os.remove(temp_path)
+        except Exception:
+            pass
+
+@app.post("/frontend/upload-process/conciliacao", tags=["Frontend"], summary="Frontend: Upload para conciliação e dispara processamento")
+async def frontend_upload_process_conciliacao(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    account_id: str = Form(...),
+    file_id: str = Form(None)
+):
+    """
+    Faz upload do arquivo para o bucket 'conciliacao', cria registro em received_files e agenda processamento.
+    """
+    import tempfile
+    try:
+        file_id = file_id or str(uuid.uuid4())
+        suffix = os.path.splitext(file.filename or "")[1] or ".bin"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            contents = await file.read()
+            tmp.write(contents)
+            temp_path = tmp.name
+
+        # Reutiliza lógica do endpoint de upload direto para Storage (sem o script), para simplicidade
+        bucket_name = "conciliacao"
+        # Gera caminho único
+        path_in_bucket = _ensure_unique_path(supabase, bucket_name, account_id, os.path.basename(file.filename or f"{file_id}{suffix}"))
+        with open(temp_path, 'rb') as fh:
+            supabase.storage.from_(bucket_name).upload(
+                path=path_in_bucket,
+                file=fh.read(),
+                file_options={"cache-control": "3600", "upsert": "false"}
+            )
+
+        storage_path = f"{bucket_name}/{path_in_bucket}"
+
+        # Registra em received_files
+        record = {
+            "id": file_id,
+            "account_id": account_id,
+            "storage_path": storage_path,
+            "status": "pending",
+        }
+        try:
+            supabase.table('received_files').insert(record).execute()
+        except Exception:
+            supabase.table('received_files').update({"storage_path": storage_path, "status": "pending"}).eq('id', file_id).execute()
+
+        # Agenda processamento usando o orquestrador existente
+        background_tasks.add_task(run_processing_conciliacao, file_id, storage_path)
+
+        return {"message": "Upload e processamento de conciliação agendado.", "file_id": file_id, "storage_path": storage_path}
+    finally:
+        try:
+            if 'temp_path' in locals() and os.path.exists(temp_path):
+                os.remove(temp_path)
+        except Exception:
+            pass
 
 import requests  # Adicionado para download de arquivos via URL
 from pydantic import BaseModel

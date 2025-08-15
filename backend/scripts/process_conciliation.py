@@ -48,6 +48,23 @@ COLUMNS_MAPPING = {
     'parcela_pagamento': 'payment_installment',
 }
 
+# Colunas que identificam de forma estável uma linha (chave natural)
+# Ajuste se necessário conforme o modelo de dados do iFood.
+NATURAL_KEY_COLUMNS = [
+    'competence_date',
+    'event_date',
+    'transaction_type',
+    'transaction_description',
+    'ifood_order_id',
+    'external_order_id',
+    'store_id',
+    'title',
+    'billing_date',
+    'settlement_start_date',
+    'settlement_end_date',
+    'payment_installment',
+]
+
 def update_file_status(logger, supabase_client: Client, file_id: str, status: str, details: str = None):
     """Atualiza o status do registro em `public.received_files` e mantém consistência de colunas auxiliares.
 
@@ -131,20 +148,37 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         
         final_columns = list(COLUMNS_MAPPING.values())
+        # Garante que todas as colunas esperadas existam; se faltarem no Excel, cria com None
+        missing_cols = [c for c in final_columns if c not in df.columns]
+        if missing_cols:
+            logger.log('warning', f"Colunas ausentes no arquivo: {missing_cols}. Preenchendo com None.")
+            for col in missing_cols:
+                df[col] = None
         df = df[final_columns]
         logger.log('info', 'DataFrame finalizado e filtrado com as colunas corretas para o banco.')
 
-        def row_hash(row):
+        # content_hash: hash do conteúdo inteiro da linha (para auditoria)
+        def content_hash(row):
             concat = '|'.join([str(row[col]) if row[col] is not None else '' for col in final_columns])
             return hashlib.sha256(concat.encode('utf-8')).hexdigest()
-        df['row_key'] = df.apply(row_hash, axis=1)
+        df['content_hash'] = df.apply(content_hash, axis=1)
 
-        # Remover duplicatas da planilha antes de enviar para o banco
+        # natural_key: hash apenas das colunas que definem a identidade da linha
+        def build_natural_key(row):
+            parts = []
+            for col in NATURAL_KEY_COLUMNS:
+                val = row[col] if col in row and row[col] is not None else ''
+                parts.append(str(val))
+            key_str = '|'.join(parts)
+            return hashlib.sha256(key_str.encode('utf-8')).hexdigest()
+        df['natural_key'] = df.apply(build_natural_key, axis=1)
+
+        # Remover duplicatas da planilha pelo natural_key (não por conteúdo)
         initial_rows = len(df)
-        df.drop_duplicates(subset=['row_key'], keep='first', inplace=True)
+        df.drop_duplicates(subset=['natural_key'], keep='first', inplace=True)
         final_rows = len(df)
         if initial_rows > final_rows:
-            logger.log('warning', f'{initial_rows - final_rows} linhas duplicadas foram removidas da planilha.')
+            logger.log('warning', f'{initial_rows - final_rows} linhas duplicadas (por natural_key) foram removidas da planilha.')
 
         # --- Log Explícito dos Dados (10 Primeiras Linhas) ---
         logger.log('info', '>>> INÍCIO DA AMOSTRA DE DADOS PROCESSADOS (10 primeiras linhas) <<<')
@@ -193,7 +227,8 @@ def save_data_in_batches(logger, supabase_client: Client, df: pd.DataFrame, acco
         batch = records_to_insert[i:i + batch_size]
         try:
             logger.log('info', f'Enviando lote {i//batch_size+1}/{(len(records_to_insert)-1)//batch_size+1} para o Supabase...')
-            supabase_client.table(TABLE_CONCILIATION).upsert(batch, on_conflict='row_key').execute()
+            # Upsert idempotente pela natural_key: insere novos, atualiza alterados
+            supabase_client.table(TABLE_CONCILIATION).upsert(batch, on_conflict='natural_key').execute()
         except Exception as e:
             logger.log('error', f'Falha ao salvar lote de dados no Supabase: {e}')
             # Log de depuração para inspecionar o primeiro registro do lote que falhou

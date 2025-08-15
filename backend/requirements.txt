@@ -6,3 +6,6 @@ pandas
 openpyxl
 python-multipart
 requests
+httpx
+pydantic-settings
+aiofiles
