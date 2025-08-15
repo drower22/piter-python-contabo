@@ -146,6 +146,8 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
                     .str.replace(',', '.', regex=False)           # Troca vírgula por ponto
                 )
                 df[col] = pd.to_numeric(df[col], errors='coerce')
+                # Normaliza infinidades para NaN para posterior conversão a None
+                df[col] = df[col].replace([np.inf, -np.inf], np.nan)
         
         final_columns = list(COLUMNS_MAPPING.values())
         # Garante que todas as colunas esperadas existam; se faltarem no Excel, cria com None
@@ -155,6 +157,8 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
             for col in missing_cols:
                 df[col] = None
         df = df[final_columns]
+        # Após todas as transformações, converte NaN/±Inf para None para compatibilidade JSON
+        df = df.replace({np.nan: None})
         logger.log('info', 'DataFrame finalizado e filtrado com as colunas corretas para o banco.')
 
         # content_hash: hash do conteúdo inteiro da linha (para auditoria)
@@ -196,10 +200,25 @@ def read_and_clean_data(logger, file_path: str) -> pd.DataFrame:
         logger.log('error', f'Falha ao ler ou limpar os dados do Excel: {e}')
         raise
 
-def safe_to_json(row, logger):
-    """Converte uma linha para JSON de forma segura, tratando erros de encoding."""
+def _sanitize_value(v):
     try:
-        return row.to_json(date_format='iso', force_ascii=False)
+        # Trata pandas/NumPy NaN/Inf
+        if pd.isna(v):
+            return None
+    except Exception:
+        pass
+    if isinstance(v, float) and (v == float('inf') or v == float('-inf')):
+        return None
+    return v
+
+def _sanitize_record(d: dict) -> dict:
+    return {k: _sanitize_value(v) for k, v in d.items()}
+
+def safe_to_json(row, logger):
+    """Converte uma linha para JSON de forma segura e compatível com JSON (sem NaN/Inf)."""
+    try:
+        data = _sanitize_record(row.to_dict())
+        return json.dumps(data, ensure_ascii=False, allow_nan=False)
     except Exception as e:
         safe_dict = {k: str(v).encode('utf-8', 'ignore').decode('utf-8') for k, v in row.to_dict().items()}
         logger.log('warning', f"Falha de encoding ao serializar linha: {e}", {'problematic_row_data': safe_dict})
@@ -220,7 +239,8 @@ def save_data_in_batches(logger, supabase_client: Client, df: pd.DataFrame, acco
 
     logger.log('info', f"[DEBUG] Colunas a serem salvas: {df.columns.tolist()}")
 
-    records_to_insert = df.to_dict(orient='records')
+    # Converte DataFrame para lista de dicionários e sanitiza NaN/Inf
+    records_to_insert = [_sanitize_record(rec) for rec in df.to_dict(orient='records')]
     
     batch_size = 100
     for i in range(0, len(records_to_insert), batch_size):
