@@ -253,47 +253,21 @@ def save_data_in_batches(logger, supabase_client: Client, df: pd.DataFrame, acco
         batch = records_to_insert[i:i + batch_size]
         try:
             logger.log('info', f'Enviando lote {i//batch_size+1}/{(len(records_to_insert)-1)//batch_size+1} para o Supabase...')
-            # Upsert idempotente pela natural_key: insere novos, atualiza alterados
-            supabase_client.table(TABLE_CONCILIATION).upsert(batch, on_conflict='natural_key').execute()
+            # Padrão definitivo: upsert por 'id'
+            supabase_client.table(TABLE_CONCILIATION).upsert(batch, on_conflict='id').execute()
         except Exception as e:
             msg = str(e)
-            logger.log('error', f'Falha ao salvar lote de dados no Supabase: {msg}')
-            # Tolerância: se a tabela não tiver content_hash, remove a coluna e tenta novamente
-            if 'content_hash' in msg:
-                logger.log('warning', "Coluna 'content_hash' ausente na tabela. Removendo do lote e tentando novamente.")
-                batch_wo_ch = [{k: v for k, v in rec.items() if k != 'content_hash'} for rec in batch]
-                try:
-                    supabase_client.table(TABLE_CONCILIATION).upsert(batch_wo_ch, on_conflict='natural_key').execute()
-                    logger.log('info', 'Reenvio sem content_hash bem-sucedido.')
-                    continue
-                except Exception as e2:
-                    logger.log('error', f'Reenvio sem content_hash também falhou: {e2}')
-                    if batch_wo_ch:
-                        logger.log('debug', f'Amostra (sem content_hash): {json.dumps(batch_wo_ch[0], default=str)}')
-                    raise
-            # Tolerância: se a tabela não tiver natural_key, tentar upsert por 'id' ou insert simples
-            if 'natural_key' in msg:
-                logger.log('warning', "Coluna/índice 'natural_key' ausente para upsert. Tentando fallback por 'id'.")
-                try:
-                    supabase_client.table(TABLE_CONCILIATION).upsert(batch, on_conflict='id').execute()
-                    logger.log('info', "Reenvio com on_conflict='id' bem-sucedido.")
-                    continue
-                except Exception as e3:
-                    logger.log('warning', f"Upsert por 'id' falhou: {e3}. Tentando insert simples.")
-                    try:
-                        supabase_client.table(TABLE_CONCILIATION).insert(batch).execute()
-                        logger.log('info', 'Insert simples bem-sucedido (sem upsert).')
-                        continue
-                    except Exception as e4:
-                        logger.log('error', f'Insert simples também falhou: {e4}')
-                        # Log de depuração do primeiro registro
-                        if batch:
-                            logger.log('debug', f'Amostra do primeiro registro do lote que falhou: {json.dumps(batch[0], default=str)}')
-                        raise
-            # Log de depuração para inspecionar o primeiro registro do lote que falhou
-            if batch:
-                logger.log('debug', f'Amostra do primeiro registro do lote que falhou: {json.dumps(batch[0], default=str)}')
-            raise
+            logger.log('error', f"Falha ao salvar lote via upsert por 'id': {msg}")
+            # Fallback temporário: insert simples se o índice único em 'id' ainda não existir
+            try:
+                supabase_client.table(TABLE_CONCILIATION).insert(batch).execute()
+                logger.log('info', 'Fallback: insert simples bem-sucedido (sem upsert).')
+                continue
+            except Exception as e2:
+                logger.log('error', f'Fallback insert também falhou: {e2}')
+                if batch:
+                    logger.log('debug', f'Amostra do primeiro registro do lote que falhou: {json.dumps(batch[0], default=str)}')
+                raise
     logger.log('info', 'Todos os lotes foram salvos com sucesso.')
 
 def process_conciliation_file(logger, supabase_client: Client, file_path: str, file_id: str, account_id: str):
