@@ -9,6 +9,20 @@ from fastapi.responses import JSONResponse
 from supabase import create_client, Client
 from dotenv import load_dotenv
 import uuid
+
+# --- Ajuste robusto de caminho para localizar o pacote 'modules' ---
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_CANDIDATES = [
+    _HERE,
+    os.path.abspath(os.path.join(_HERE, '..')),            # raiz do projeto (ex.: contem 'backend' e 'modules')
+    os.path.abspath(os.path.join(_HERE, '..', 'backend')), # quando main.py é copiado para /app e 'backend/modules' ficou junto
+]
+for _p in _CANDIDATES:
+    _modules_dir = os.path.join(_p, 'modules')
+    if os.path.isdir(_modules_dir) and _p not in sys.path:
+        sys.path.insert(0, _p)
+        break
+
 from modules.ifood import ifood_router
 
 print("[DEBUG] Iniciando API iFood Sales Concierge...")
