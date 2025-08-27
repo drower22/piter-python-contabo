@@ -9,11 +9,19 @@ from fastapi.responses import JSONResponse
 from supabase import create_client, Client
 from dotenv import load_dotenv
 import uuid
+from backend.dex.api.routers import health as health_router
+from backend.dex.api.routers import forms as forms_router
+from backend.dex.api.routers import whatsapp_webhook as wa_webhook_router
 
 print("[DEBUG] Iniciando Dex API...")
 
 # Carrega as variáveis de ambiente
+# 1) Carrega .env da pasta onde o processo é iniciado (raiz do projeto)
 load_dotenv()
+# 2) Carrega também backend/.env (baseado no caminho deste arquivo)
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_BACKEND_ENV = os.path.join(_THIS_DIR, ".env")
+load_dotenv(dotenv_path=_BACKEND_ENV, override=False)
 
 # Configuração do Supabase
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -42,6 +50,11 @@ app = FastAPI(
     version="1.0.0"
 )
 print("[DEBUG] FastAPI inicializado.")
+
+# Inclui novos routers do módulo dex
+app.include_router(health_router.router)
+app.include_router(forms_router.router)
+app.include_router(wa_webhook_router.router)
 
 # Servir frontend estático (somente se existir)
 _BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -275,8 +288,8 @@ import os
 
 # Importa a lógica de processamento do script
 # Este endpoint é EXCLUSIVO para o processamento do relatório financeiro do iFood.
-from scripts.process_report import processar_relatorio_financeiro, init_supabase_client as init_processor_supabase, SupabaseLogger
-from scripts.process_conciliation import process_conciliation_file, update_file_status
+from backend.scripts.process_report import processar_relatorio_financeiro, init_supabase_client as init_processor_supabase, SupabaseLogger
+from backend.scripts.process_conciliation import process_conciliation_file, update_file_status
 
 @app.post("/upload/planilha-url", tags=["Uploads"], summary="Faz upload de uma planilha a partir de uma URL para o Supabase Storage")
 async def upload_planilha_url(
