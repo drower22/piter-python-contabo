@@ -9,9 +9,22 @@ from fastapi.responses import JSONResponse
 from supabase import create_client, Client
 from dotenv import load_dotenv
 import uuid
-from backend.dex.api.routers import health as health_router
-from backend.dex.api.routers import forms as forms_router
-from backend.dex.api.routers import whatsapp_webhook as wa_webhook_router
+
+# Ajuste de caminho para permitir importações tanto via 'backend.*' quanto locais
+_THIS_FILE_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.abspath(os.path.join(_THIS_FILE_DIR, '..'))
+for _p in (_PROJECT_ROOT, _THIS_FILE_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+try:
+    from backend.dex.api.routers import health as health_router
+    from backend.dex.api.routers import forms as forms_router
+    from backend.dex.api.routers import whatsapp_webhook as wa_webhook_router
+except ModuleNotFoundError:
+    # Fallback quando o pacote raiz 'backend' não está no PYTHONPATH
+    from dex.api.routers import health as health_router
+    from dex.api.routers import forms as forms_router
+    from dex.api.routers import whatsapp_webhook as wa_webhook_router
 
 print("[DEBUG] Iniciando Dex API...")
 
@@ -288,8 +301,26 @@ import os
 
 # Importa a lógica de processamento do script
 # Este endpoint é EXCLUSIVO para o processamento do relatório financeiro do iFood.
-from backend.scripts.process_report import processar_relatorio_financeiro, init_supabase_client as init_processor_supabase, SupabaseLogger
-from backend.scripts.process_conciliation import process_conciliation_file, update_file_status
+try:
+    from backend.scripts.process_report import (
+        processar_relatorio_financeiro,
+        init_supabase_client as init_processor_supabase,
+        SupabaseLogger,
+    )
+    from backend.scripts.process_conciliation import (
+        process_conciliation_file,
+        update_file_status,
+    )
+except ModuleNotFoundError:
+    from scripts.process_report import (
+        processar_relatorio_financeiro,
+        init_supabase_client as init_processor_supabase,
+        SupabaseLogger,
+    )
+    from scripts.process_conciliation import (
+        process_conciliation_file,
+        update_file_status,
+    )
 
 @app.post("/upload/planilha-url", tags=["Uploads"], summary="Faz upload de uma planilha a partir de uma URL para o Supabase Storage")
 async def upload_planilha_url(
