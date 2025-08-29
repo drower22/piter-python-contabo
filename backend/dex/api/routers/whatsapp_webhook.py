@@ -198,31 +198,40 @@ async def send_template(request: Request):
 
 @router.get("/_admin/users")
 async def list_users(request: Request):
-    """
-    Lista usuários com whatsapp_number_normalized preenchido para seleção no frontend.
-    Segurança: requer header X-Admin-Token igual a ADMIN_TOKEN.
-    """
-    admin_token = os.getenv("ADMIN_TOKEN")
-    if admin_token and request.headers.get("x-admin-token") != admin_token:
-        return JSONResponse(status_code=403, content={"error": "forbidden"})
+    try:
+        admin_token = os.getenv("ADMIN_TOKEN")
+        if admin_token and request.headers.get("x-admin-token") != admin_token:
+            return JSONResponse(status_code=403, content={"error": "forbidden"})
 
-    sb = get_supabase()
-    q = (
-        sb.table('users')
-        .select('id,user_name,whatsapp_number_normalized')
-        .is_('whatsapp_number_normalized', 'not.null')
-        .order('created_at', desc=True)
-        .limit(200)
-        .execute()
-    )
-    data = q.data or []
-    # Filtra nulos por precaução
-    data = [
-        {
-            'id': r.get('id'),
-            'user_name': r.get('user_name') or '',
-            'whatsapp_number_normalized': r.get('whatsapp_number_normalized') or ''
-        }
-        for r in data if r.get('whatsapp_number_normalized')
-    ]
-    return JSONResponse(status_code=200, content={"items": data})
+        sb = get_supabase()
+        
+        # Debug: Primeiro descobrir as colunas disponíveis
+        debug_q = sb.table('users').select('*').limit(1).execute()
+        print(f"[DEBUG] Estrutura da tabela users: {debug_q.data}")
+        
+        # Query principal usando colunas genéricas
+        q = (
+            sb.table('users')
+            .select('id,whatsapp_number_normalized')
+            .not_.eq('whatsapp_number_normalized', None)
+            .order('created_at', desc=True)
+            .limit(200)
+            .execute()
+        )
+        
+        items = []
+        for r in q.data or []:
+            num = (r.get('whatsapp_number_normalized') or '').strip()
+            if num:
+                items.append({
+                    'id': r.get('id'),
+                    'whatsapp_number_normalized': num
+                })
+        
+        return JSONResponse(status_code=200, content={"items": items})
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500, 
+            content={"error": "Internal server error", "details": str(e)}
+        )
