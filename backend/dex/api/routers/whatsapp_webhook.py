@@ -4,6 +4,7 @@ from fastapi.responses import PlainTextResponse, JSONResponse
 from ...infra.supabase import get_supabase
 from ...infra.whatsapp import WhatsAppClient
 from ...services.whatsapp_flow import handle_message, reply_via_whatsapp
+from pydantic import BaseModel
 
 router = APIRouter(tags=["WhatsApp"], prefix="/_webhooks/whatsapp")
 
@@ -139,61 +140,78 @@ async def receive_update(request: Request):
         return JSONResponse(status_code=200, content={"received": True, "note": "error, but 200 to avoid retries", "error": str(e)})
 
 
+class WhatsAppTemplateRequest(BaseModel):
+    to: str | None
+    contact_id: str | None
+    user_id: str | None
+    user_number_normalized: str | None
+    template_name: str
+    lang_code: str
+    components: list
+
+
+async def resolve_recipient(data: WhatsAppTemplateRequest):
+    if data.to:
+        return data.to
+    elif data.contact_id:
+        sb = get_supabase()
+        q = sb.table('wa_contacts').select('whatsapp_number').eq('id', data.contact_id).maybe_single().execute()
+        data = q.data or {}
+        return (data.get('whatsapp_number') or '').strip()
+    elif data.user_id:
+        sb = get_supabase()
+        q = sb.table('users').select('whatsapp_number_normalized').eq('id', data.user_id).maybe_single().execute()
+        data = q.data or {}
+        return (data.get('whatsapp_number_normalized') or '').strip()
+    elif data.user_number_normalized:
+        return data.user_number_normalized
+    else:
+        raise Exception("Recipient not found")
+
+
 @router.post("/send-template")
-async def send_template(request: Request):
-    """
-    Envia um template aprovado da Meta para um número real.
-    Segurança: requer header X-Admin-Token igual a ADMIN_TOKEN no ambiente.
-
-    Body JSON exemplos:
-    - {"to": "5511999999999", "template": "nome_do_template", "language": "pt_BR", "components": [...]}
-    - {"contact_id": "<uuid>", "template": "nome", "language": "pt_BR"}
-    """
-    admin_token = os.getenv("ADMIN_TOKEN")
-    if admin_token and request.headers.get("x-admin-token") != admin_token:
-        return JSONResponse(status_code=403, content={"error": "forbidden"})
-
-    body = await request.json()
-    to = (body.get("to") or "").strip()
-    contact_id = (body.get("contact_id") or "").strip()
-    user_id = (body.get("user_id") or "").strip()
-    user_number_normalized = (body.get("user_number_normalized") or "").strip()
-    template = (body.get("template") or "").strip()
-    language = (body.get("language") or "pt_BR").strip()
-    components = body.get("components")
-
-    if not template:
-        return JSONResponse(status_code=400, content={"error": "template é obrigatório"})
-
-    if not to and not contact_id and not user_id and not user_number_normalized:
-        return JSONResponse(status_code=400, content={"error": "informe 'to' ou 'contact_id' ou 'user_id' ou 'user_number_normalized'"})
-
-    sb = None
-    if not to and contact_id:
-        sb = sb or get_supabase()
-        q = sb.table('wa_contacts').select('whatsapp_number').eq('id', contact_id).maybe_single().execute()
-        data = q.data or {}
-        to = (data.get('whatsapp_number') or '').strip()
-        if not to:
-            return JSONResponse(status_code=404, content={"error": "contact_id não encontrado ou sem whatsapp_number"})
-
-    if not to and user_id:
-        sb = sb or get_supabase()
-        q = sb.table('users').select('whatsapp_number_normalized').eq('id', user_id).maybe_single().execute()
-        data = q.data or {}
-        to = (data.get('whatsapp_number_normalized') or '').strip()
-        if not to:
-            return JSONResponse(status_code=404, content={"error": "user_id não encontrado ou sem whatsapp_number_normalized"})
-
-    if not to and user_number_normalized:
-        to = user_number_normalized
-
+async def send_template(
+    request: Request,
+    data: WhatsAppTemplateRequest
+):
+    print(f"[DEBUG] Iniciando send_template - Dados recebidos: {data}")
+    
     try:
+        # Verificação do token admin
+        admin_token = os.getenv("ADMIN_TOKEN")
+        if admin_token and request.headers.get("x-admin-token") != admin_token:
+            print("[DEBUG] Token admin inválido ou ausente")
+            return JSONResponse(status_code=403, content={"error": "forbidden"})
+
+        # Resolução do número de destino
+        to_number = await resolve_recipient(data)
+        print(f"[DEBUG] Número resolvido: {to_number}")
+
+        # Envio via WhatsApp Client
         client = WhatsAppClient()
-        resp = client.send_template(to=to, template=template, language=language, components=components)
-        return JSONResponse(status_code=200, content={"ok": True, "to": to, "response": resp})
+        print(f"[DEBUG] Enviando template: {data.template_name} para {to_number}")
+        
+        response = client.send_template(
+            to=to_number,
+            template_name=data.template_name,
+            lang_code=data.lang_code,
+            components=data.components
+        )
+        
+        print(f"[DEBUG] Resposta WhatsApp API: {response}")
+        
+        return JSONResponse(status_code=200, content={
+            "ok": True,
+            "to": to_number,
+            "response": response
+        })
+        
     except Exception as e:
-        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+        print(f"[ERROR] Erro em send_template: {str(e)}")
+        return JSONResponse(
+            status_code=500, 
+            content={"error": "Internal server error", "details": str(e)}
+        )
 
 
 @router.get("/_admin/users")
