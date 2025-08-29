@@ -172,58 +172,42 @@ async def resolve_recipient(data: WhatsAppTemplateRequest):
 @router.post("/send-template")
 async def send_template(
     request: Request,
-    data: WhatsAppTemplateRequest = Body(...)  # Força a validação do corpo da requisição
+    data: WhatsAppTemplateRequest = Body(...)
 ):
-    print(f"[DEBUG] Iniciando send_template - Dados recebidos: {data}")
-    
     try:
+        print(f"[DEBUG] Request received: {await request.body()}")
+        
         # Verificação do token admin
         admin_token = os.getenv("ADMIN_TOKEN")
         if admin_token and request.headers.get("x-admin-token") != admin_token:
-            print("[DEBUG] Token admin inválido ou ausente")
             return JSONResponse(status_code=403, content={"error": "forbidden"})
 
-        # Validação dos campos obrigatórios
-        if not any([data.to, data.contact_id, data.user_id, data.user_number_normalized]):
-            return JSONResponse(
-                status_code=422,
-                content={"error": "Pelo menos um identificador de destinatário é necessário"}
-            )
-
+        # Validação simplificada
         if not data.template_name or not data.lang_code:
             return JSONResponse(
                 status_code=422,
-                content={"error": "template_name e lang_code são obrigatórios"}
+                content={"error": "template_name and lang_code are required"}
             )
 
-        # Resolução do número de destino
+        # Resolve recipient - aceita qualquer um dos campos
         to_number = await resolve_recipient(data)
-        print(f"[DEBUG] Número resolvido: {to_number}")
-
-        # Envio via WhatsApp Client
-        client = WhatsAppClient()
-        print(f"[DEBUG] Enviando template: {data.template_name} para {to_number}")
         
+        # Envio
+        client = WhatsAppClient()
         response = client.send_template(
             to=to_number,
             template_name=data.template_name,
             lang_code=data.lang_code,
-            components=data.components or []  # Garante lista vazia se None
+            components=data.components or []
         )
         
-        print(f"[DEBUG] Resposta WhatsApp API: {response}")
-        
-        return JSONResponse(status_code=200, content={
-            "ok": True,
-            "to": to_number,
-            "response": response
-        })
+        return JSONResponse(status_code=200, content={"ok": True, "to": to_number})
         
     except Exception as e:
-        print(f"[ERROR] Erro em send_template: {str(e)}")
+        print(f"[ERROR] {str(e)}")
         return JSONResponse(
             status_code=500, 
-            content={"error": "Internal server error", "details": str(e)}
+            content={"error": str(e)}
         )
 
 
