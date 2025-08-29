@@ -1,5 +1,5 @@
 import os
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Query
 from fastapi.responses import PlainTextResponse, JSONResponse
 from ...infra.supabase import get_supabase
 from ...services.whatsapp_flow import handle_message, reply_via_whatsapp
@@ -8,12 +8,47 @@ router = APIRouter(tags=["WhatsApp"], prefix="/_webhooks/whatsapp")
 
 
 @router.get("")
-async def verify(hub_mode: str | None = None, hub_challenge: str | None = None, hub_verify_token: str | None = None):
+async def verify(
+    hub_mode: str | None = Query(default=None, alias="hub.mode"),
+    hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
+    hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
+    request: Request = None,
+):
     # Verificação oficial do Meta WhatsApp Cloud API
+    # Fallback: alguns proxies/clients podem enviar sem pontos
+    if (hub_mode is None or hub_challenge is None or hub_verify_token is None) and request is not None:
+        qp = request.query_params
+        hub_mode = hub_mode or qp.get("hub_mode") or qp.get("mode")
+        hub_challenge = hub_challenge or qp.get("hub_challenge") or qp.get("challenge")
+        hub_verify_token = hub_verify_token or qp.get("hub_verify_token") or qp.get("verify_token")
+
     verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN")
+    try:
+        print(
+            "[WA_VERIFY]",
+            {
+                "mode": hub_mode,
+                "challenge_present": bool(hub_challenge),
+                "provided_len": len(hub_verify_token or ""),
+                "env_set": bool(verify_token),
+                "match": (hub_verify_token == verify_token) if verify_token else False,
+            }
+        )
+    except Exception:
+        # Evita que problemas de log quebrem a verificação
+        pass
     if hub_mode == "subscribe" and hub_challenge and hub_verify_token == verify_token:
         return PlainTextResponse(content=hub_challenge)
     return PlainTextResponse(status_code=403, content="forbidden")
+
+
+@router.get("/ _debug/wa-env".replace(" ", ""))
+async def debug_wa_env():
+    token = os.getenv("WHATSAPP_VERIFY_TOKEN")
+    return {
+        "env_set": bool(token),
+        "len": len(token) if token else 0
+    }
 
 
 def _get_first(lst):

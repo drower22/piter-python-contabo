@@ -3,6 +3,8 @@
   const LS_KEY = 'dextester';
   const state = JSON.parse(localStorage.getItem(LS_KEY)||'{}');
 
+  const normalizeBase = (u)=> (u||'').trim().replace(/\/+$/,'');
+
   const baseUrl = state.baseUrl || 'https://dex-novo-railway-production.up.railway.app';
   const verifyToken = state.verifyToken || '';
   $('baseUrl').value = baseUrl;
@@ -20,7 +22,8 @@
   $('btnHealth').onclick = async ()=>{
     $('outHealth').textContent = '...';
     try {
-      const res = await fetch(`${$('baseUrl').value.trim()}/`);
+      const base = normalizeBase($('baseUrl').value);
+      const res = await fetch(`${base}/`);
       const txt = await res.text();
       $('outHealth').textContent = `${res.status} ${res.statusText}\n\n${txt}`;
     } catch(e){
@@ -32,7 +35,8 @@
     $('outVerify').textContent = '...';
     const challenge = encodeURIComponent(($('challenge').value||'123456').trim());
     const token = encodeURIComponent(($('verifyToken').value||'').trim());
-    const url = `${$('baseUrl').value.trim()}/_webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=${token}&hub.challenge=${challenge}`;
+    const base = normalizeBase($('baseUrl').value);
+    const url = `${base}/_webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=${token}&hub.challenge=${challenge}`;
     try {
       const res = await fetch(url);
       const txt = await res.text();
@@ -48,7 +52,8 @@
     try{ body = JSON.parse($('payload').value); }
     catch{ $('outSim').textContent = 'JSON inválido no payload'; return; }
     try {
-      const res = await fetch(`${$('baseUrl').value.trim()}/_webhooks/whatsapp`,{
+      const base = normalizeBase($('baseUrl').value);
+      const res = await fetch(`${base}/_webhooks/whatsapp`,{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify(body)
