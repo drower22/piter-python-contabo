@@ -35,6 +35,7 @@
       <div class="row">
         <input id="baseUrl" placeholder="https://dex-novo-railway-production.up.railway.app" />
         <input id="verifyToken" placeholder="WHATSAPP_VERIFY_TOKEN" />
+        <input id="adminToken" placeholder="ADMIN_TOKEN (para envios)" />
         <button id="saveCfg">Salvar</button>
       </div>
       <div class="muted">A URL deve apontar para seu app no Railway.</div>
@@ -79,6 +80,22 @@
         <button id="btnSimulate">POST /_webhooks/whatsapp</button>
       </div>
       <pre id="outSim"></pre>
+    </div>
+
+    <div class="card">
+      <h2>Enviar Template (real)</h2>
+      <div class="row">
+        <input id="tplName" placeholder="template (ex: whatsapp_verification)" />
+        <input id="tplLang" placeholder="language (ex: pt_BR)" />
+        <button id="btnReloadUsers">Listar usuários</button>
+      </div>
+      <div class="row">
+        <select id="usersList" style="min-width:300px"></select>
+        <input id="manualNumber" placeholder="ou número E.164 (ex: 5511999999999)" />
+        <button id="btnSendTemplate">Enviar Template</button>
+      </div>
+      <div class="muted">Escolha um usuário (usa users.whatsapp_number_normalized) ou informe um número manualmente.</div>
+      <pre id="outTpl"></pre>
     </div>
   </main>
   <script src="app.js"></script>
