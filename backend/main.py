@@ -4,6 +4,7 @@ import subprocess
 import traceback
 import re
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from supabase import create_client, Client
@@ -63,6 +64,15 @@ app = FastAPI(
     version="1.0.0"
 )
 print("[DEBUG] FastAPI inicializado.")
+
+# Habilita CORS para permitir que um frontend local consuma a API (ex.: Railway)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"]
+)
 
 # Inclui novos routers do módulo dex
 app.include_router(health_router.router)

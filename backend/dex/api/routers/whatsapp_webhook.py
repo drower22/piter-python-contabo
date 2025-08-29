@@ -7,7 +7,7 @@ from ...services.whatsapp_flow import handle_message, reply_via_whatsapp
 router = APIRouter(tags=["WhatsApp"], prefix="/_webhooks/whatsapp")
 
 
-@router.get("/")
+@router.get("")
 async def verify(hub_mode: str | None = None, hub_challenge: str | None = None, hub_verify_token: str | None = None):
     # Verificação oficial do Meta WhatsApp Cloud API
     verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN")
@@ -56,7 +56,7 @@ def _insert_message(sb, conversation_id: str, direction: str, msg_type: str, bod
     sb.table('wa_conversations').update({'last_message_at': 'now()'}).eq('id', conversation_id).execute()
 
 
-@router.post("/")
+@router.post("")
 async def receive_update(request: Request):
     body = await request.json()
     # Estrutura esperada: entry -> changes -> value -> messages
