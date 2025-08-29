@@ -1,6 +1,5 @@
 from functools import lru_cache
-from supabase import create_client
-from postgrest import Client
+from supabase import create_client, Client
 from ..core.settings import get_settings
 
 
