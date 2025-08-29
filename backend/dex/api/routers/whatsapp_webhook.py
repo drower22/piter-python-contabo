@@ -1,5 +1,5 @@
 import os
-from fastapi import APIRouter, Request, Query
+from fastapi import APIRouter, Request, Query, Body
 from fastapi.responses import PlainTextResponse, JSONResponse
 from ...infra.supabase import get_supabase
 from ...infra.whatsapp import WhatsAppClient
@@ -172,7 +172,7 @@ async def resolve_recipient(data: WhatsAppTemplateRequest):
 @router.post("/send-template")
 async def send_template(
     request: Request,
-    data: WhatsAppTemplateRequest
+    data: WhatsAppTemplateRequest = Body(...)  # Força a validação do corpo da requisição
 ):
     print(f"[DEBUG] Iniciando send_template - Dados recebidos: {data}")
     
@@ -182,6 +182,19 @@ async def send_template(
         if admin_token and request.headers.get("x-admin-token") != admin_token:
             print("[DEBUG] Token admin inválido ou ausente")
             return JSONResponse(status_code=403, content={"error": "forbidden"})
+
+        # Validação dos campos obrigatórios
+        if not any([data.to, data.contact_id, data.user_id, data.user_number_normalized]):
+            return JSONResponse(
+                status_code=422,
+                content={"error": "Pelo menos um identificador de destinatário é necessário"}
+            )
+
+        if not data.template_name or not data.lang_code:
+            return JSONResponse(
+                status_code=422,
+                content={"error": "template_name e lang_code são obrigatórios"}
+            )
 
         # Resolução do número de destino
         to_number = await resolve_recipient(data)
@@ -195,7 +208,7 @@ async def send_template(
             to=to_number,
             template_name=data.template_name,
             lang_code=data.lang_code,
-            components=data.components
+            components=data.components or []  # Garante lista vazia se None
         )
         
         print(f"[DEBUG] Resposta WhatsApp API: {response}")
