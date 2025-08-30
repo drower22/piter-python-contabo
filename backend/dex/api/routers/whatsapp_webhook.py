@@ -194,11 +194,32 @@ async def send_template(
         # Resolve recipient - aceita qualquer um dos campos
         to_number = await resolve_recipient(data)
         
+        # Tenta obter user_name a partir dos identificadores fornecidos
+        user_name_val: str | None = None
+        try:
+            sb = get_supabase()
+            if data.user_id:
+                q = sb.table('users').select('user_name').eq('id', data.user_id).maybe_single().execute()
+                user_name_val = (q.data or {}).get('user_name')
+            if not user_name_val and data.user_number_normalized:
+                q = sb.table('users').select('user_name').eq('whatsapp_number_normalized', data.user_number_normalized).maybe_single().execute()
+                user_name_val = (q.data or {}).get('user_name')
+            if not user_name_val and data.to:
+                q = sb.table('users').select('user_name').eq('whatsapp_number_normalized', data.to).maybe_single().execute()
+                user_name_val = (q.data or {}).get('user_name')
+            if not user_name_val and to_number:
+                q = sb.table('users').select('user_name').eq('whatsapp_number_normalized', to_number).maybe_single().execute()
+                user_name_val = (q.data or {}).get('user_name')
+        except Exception as _e:
+            # Não falha se não encontrar; apenas segue sem variável automática
+            print(f"[DEBUG] Falha ao buscar user_name: {_e}")
+
         # Envio
         client = WhatsAppClient()
         
         # Adicionando logs para depuração
         components = data.components or []
+
         # Se não vierem components mas vier uma lista de variables, monta automaticamente
         if not components and (data.variables or []):
             body_params = []
@@ -206,6 +227,15 @@ async def send_template(
                 # Por padrão enviamos como texto
                 body_params.append({"type": "text", "text": str(v)})
             components = [{"type": "body", "parameters": body_params}]
+
+        # Se ainda não houver components e também não houver variables, mas temos user_name,
+        # usamos user_name como {{1}}
+        if not components and not (data.variables or []):
+            if user_name_val:
+                components = [{
+                    "type": "body",
+                    "parameters": [{"type": "text", "text": str(user_name_val)}]
+                }]
 
         payload = {
             "to": to_number,
