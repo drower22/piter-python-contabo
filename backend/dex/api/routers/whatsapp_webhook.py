@@ -65,8 +65,8 @@ def _ensure_contact(sb, wa_number: str, profile_name: str | None):
     ins = sb.table('wa_contacts').insert({
         'whatsapp_number': wa_number,
         'profile_name': profile_name,
-    }).execute()
-    return ins.data[0]['id']
+    }).select('id').single().execute()
+    return ins.data['id']
 
 
 def _ensure_open_conversation(sb, contact_id: str) -> str:
@@ -141,13 +141,13 @@ async def receive_update(request: Request):
 
 
 class WhatsAppTemplateRequest(BaseModel):
-    to: str | None
-    contact_id: str | None
-    user_id: str | None
-    user_number_normalized: str | None
+    to: str | None = None
+    contact_id: str | None = None
+    user_id: str | None = None
+    user_number_normalized: str | None = None
     template_name: str
     lang_code: str
-    components: list
+    components: list = []
 
 
 async def resolve_recipient(data: WhatsAppTemplateRequest):

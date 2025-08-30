@@ -95,7 +95,7 @@
         for (const u of data.items){
           const opt = document.createElement('option');
           opt.value = u.whatsapp_number_normalized;
-          opt.textContent = `${u.user_name || u.id} — ${u.whatsapp_number_normalized}`;
+          opt.textContent = `${u.name || u.user_name || u.id} — ${u.whatsapp_number_normalized}`;
           usersList.appendChild(opt);
         }
       } else {
@@ -116,7 +116,7 @@
     const lang = ($('tplLang')?.value||'').trim() || 'pt_BR';
     const manual = ($('manualNumber')?.value||'').trim();
     const selected = usersList && usersList.value ? usersList.value : '';
-    const body = { template: name, language: lang };
+    const body = { template_name: name, lang_code: lang };
     if (manual){ body.to = manual; }
     else if (selected){ body.user_number_normalized = selected; }
     else { outTpl.textContent = 'Escolha um usuário ou informe um número.'; return; }
