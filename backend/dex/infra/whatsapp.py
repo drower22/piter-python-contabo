@@ -15,6 +15,13 @@ class WhatsAppClient:
             raise ValueError("WHATSAPP_PHONE_ID e WHATSAPP_TOKEN são obrigatórios no ambiente.")
 
         self.base_url = f"https://graph.facebook.com/{self.graph_version}/{self.phone_number_id}"
+        # Diagnóstico do ambiente em produção (não loga token completo)
+        token_mask = (self.token[:6] + "..." + self.token[-4:]) if len(self.token or "") >= 12 else "(short)"
+        print(
+            f"[DEBUG] WhatsAppClient env: phone_number_id={self.phone_number_id}, "
+            f"graph_version={self.graph_version}, token={token_mask}"
+        )
+        print(f"[DEBUG] WhatsAppClient base_url: {self.base_url}")
         self.headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json"
@@ -28,9 +35,15 @@ class WhatsAppClient:
             "text": {"body": text, "preview_url": preview_url}
         }
         url = f"{self.base_url}/messages"
+        print(f"[DEBUG] POST {url} payload={payload}")
         resp = requests.post(url, headers=self.headers, json=payload, timeout=30)
+        print(f"[DEBUG] RESP status={resp.status_code} text={resp.text}")
         resp.raise_for_status()
-        return resp.json()
+        try:
+            data = resp.json()
+        except Exception:
+            data = {"_non_json_body": resp.text}
+        return data
 
     def send_template(self, to: str, template: str, language: str = "pt_BR", components: Optional[list] = None) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
