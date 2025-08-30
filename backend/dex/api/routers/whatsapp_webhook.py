@@ -196,7 +196,7 @@ async def send_template(
         client = WhatsAppClient()
         response = client.send_template(
             to=to_number,
-            template_name=data.template_name,
+            template=data.template_name,  # Corrigido de template_name para template
             lang_code=data.lang_code,
             components=data.components or []
         )
