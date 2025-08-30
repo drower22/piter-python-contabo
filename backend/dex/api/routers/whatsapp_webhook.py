@@ -194,20 +194,33 @@ async def send_template(
         
         # Envio
         client = WhatsAppClient()
+        
+        # Adicionando logs para depuração
+        payload = {
+            "to": to_number,
+            "template": data.template_name,
+            "language": data.lang_code,
+            "components": data.components or []
+        }
+        print(f"[DEBUG] WhatsAppClient.send_template PAYLOAD: {payload}")
+
         response = client.send_template(
-            to=to_number,
-            template=data.template_name,  # Corrigido de template_name para template
-            lang_code=data.lang_code,
-            components=data.components or []
+            to=payload["to"],
+            template=payload["template"],
+            language=payload["language"],
+            components=payload["components"]
         )
         
-        return JSONResponse(status_code=200, content={"ok": True, "to": to_number})
+        print(f"[DEBUG] WhatsApp API response: {response}")
+        return JSONResponse(status_code=200, content={"ok": True, "to": to_number, "response": response})
         
     except Exception as e:
-        print(f"[ERROR] {str(e)}")
+        import traceback
+        print(f"[ERROR] Exception in send_template: {str(e)}")
+        print(traceback.format_exc())
         return JSONResponse(
             status_code=500, 
-            content={"error": str(e)}
+            content={"error": str(e), "traceback": traceback.format_exc()}
         )
 
 
