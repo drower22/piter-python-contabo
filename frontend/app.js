@@ -121,6 +121,13 @@
     else if (selected){ body.user_number_normalized = selected; }
     else { outTpl.textContent = 'Escolha um usuário ou informe um número.'; return; }
 
+    // Variáveis opcionais (tplVars: separado por vírgula)
+    const tplVarsEl = $('tplVars');
+    if (tplVarsEl && tplVarsEl.value && tplVarsEl.value.trim().length){
+      const vars = tplVarsEl.value.split(',').map(s=>s.trim()).filter(Boolean);
+      if (vars.length){ body.variables = vars; }
+    }
+
     try{
       const res = await fetch(`${base}/_webhooks/whatsapp/send-template`,{
         method:'POST',

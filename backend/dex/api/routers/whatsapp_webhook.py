@@ -148,6 +148,8 @@ class WhatsAppTemplateRequest(BaseModel):
     template_name: str
     lang_code: str
     components: list = []
+    # Lista simples de variáveis para o corpo do template ({{1}}, {{2}}, ...)
+    variables: list[str] | None = None
 
 
 async def resolve_recipient(data: WhatsAppTemplateRequest):
@@ -196,11 +198,20 @@ async def send_template(
         client = WhatsAppClient()
         
         # Adicionando logs para depuração
+        components = data.components or []
+        # Se não vierem components mas vier uma lista de variables, monta automaticamente
+        if not components and (data.variables or []):
+            body_params = []
+            for v in (data.variables or []):
+                # Por padrão enviamos como texto
+                body_params.append({"type": "text", "text": str(v)})
+            components = [{"type": "body", "parameters": body_params}]
+
         payload = {
             "to": to_number,
             "template": data.template_name,
             "language": data.lang_code,
-            "components": data.components or []
+            "components": components
         }
         print(f"[DEBUG] WhatsAppClient.send_template PAYLOAD: {payload}")
 
