@@ -5,6 +5,7 @@
     useLocal: document.getElementById('useLocal'),
     question: document.getElementById('question'),
     btnAsk: document.getElementById('btnAsk'),
+    btnInterpret: document.getElementById('btnInterpret'),
     model: document.getElementById('model'),
     timing: document.getElementById('timing'),
     sql: document.getElementById('sql'),
@@ -25,6 +26,59 @@
       if(obj.baseUrl) els.baseUrl.value = obj.baseUrl;
       renderCfg();
     }catch{}
+  }
+
+  async function doInterpret(){
+    const baseUrl = (els.baseUrl.value||'').trim();
+    if(!baseUrl){ alert('Defina a base URL'); return; }
+    const q = (els.question.value||'').trim();
+    if(!q){ alert('Escreva uma pergunta'); return; }
+    try{
+      els.btnInterpret.disabled = true;
+      els.model.textContent = '';
+      els.timing.textContent = '';
+      els.sql.textContent = '';
+      els.interp.textContent = '';
+      els.table.innerHTML = '';
+      els.raw.textContent = '';
+      els.logs.textContent = '';
+
+      const url = baseUrl.replace(/\/$/, '') + '/qa/interpret';
+      const payload = { question: q };
+      const t0 = performance.now();
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const text = await res.text();
+      const t1 = performance.now();
+      let data;
+      try { data = JSON.parse(text); } catch { data = { _raw: text }; }
+
+      els.raw.textContent = JSON.stringify(data, null, 2);
+      els.logs.textContent = [
+        `POST ${url}`,
+        `status: ${res.status}`,
+        `duration_ms: ${Math.round(t1 - t0)}`,
+        'payload: ' + JSON.stringify(payload),
+        'response: ' + (typeof data==='object'? JSON.stringify(data) : String(data))
+      ].join('\n');
+
+      if(!res.ok || !data.ok){
+        const msg = (data?.detail?.message || data?.detail || res.status);
+        alert('Falha: ' + msg);
+        return;
+      }
+
+      els.model.textContent = data.model || '-';
+      els.timing.textContent = data.timing_ms ?? '-';
+      els.interp.textContent = JSON.stringify(data.interpretation, null, 2);
+    } catch (e){
+      alert('Erro: ' + e);
+    } finally {
+      els.btnInterpret.disabled = false;
+    }
   }
   function saveCfg(){
     const obj = { baseUrl: (els.baseUrl.value||'').trim() };
@@ -122,4 +176,5 @@
   els.saveCfg.addEventListener('click', saveCfg);
   els.useLocal.addEventListener('click', ()=>{ els.baseUrl.value='http://127.0.0.1:8000'; saveCfg(); });
   els.btnAsk.addEventListener('click', ask);
+  els.btnInterpret.addEventListener('click', doInterpret);
 })();

@@ -14,6 +14,10 @@ try:
 except Exception:
     GroqLlamaProvider = None  # type: ignore
 
+try:
+    from .providers.openai import OpenAIProvider
+except Exception:
+    OpenAIProvider = None  # type: ignore
 
 DEFAULT_LIMIT = int(os.getenv("SQLAGENT_DEFAULT_LIMIT", "100") or 100)
 MAX_LIMIT = int(os.getenv("SQLAGENT_MAX_LIMIT", "500") or 500)
@@ -45,10 +49,20 @@ def _build_prompt(question: str, hint_tables: Optional[List[str]] = None) -> str
 
 
 def _ensemble_generate(question: str, hint_tables: Optional[List[str]] = None) -> Tuple[str, str, str]:
-    """Try Gemini, then fallback to Groq/Llama. Returns (sql, rationale, model)."""
+    """Try OpenAI (gpt), Gemini, then Groq/Llama. Returns (sql, rationale, model)."""
     prompt = _build_prompt(question, hint_tables)
 
     errors: List[str] = []
+
+    if OpenAIProvider is not None and os.getenv("OPENAI_API_KEY"):
+        try:
+            sql = OpenAIProvider().generate_sql(prompt)
+            ok, issues = validate_sql(sql)
+            if ok:
+                return sql, "openai_ok", os.getenv("OPENAI_MODEL", "openai")
+            errors.append(f"openai_invalid: {issues}")
+        except Exception as e:
+            errors.append(f"openai_err: {e}")
 
     if GeminiProvider is not None and os.getenv("GEMINI_API_KEY"):
         try:

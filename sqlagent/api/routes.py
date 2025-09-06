@@ -1,8 +1,14 @@
+@router.post("/qa/interpret")
+async def post_interpret(body: AskBody):
+    data, model = interpret(body.question)
+    return {"ok": True, "model": model, "interpretation": data}
+
 import time
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 from ..services.sqlgen import generate_sql
 from ..services.presets import list_presets, run_preset
+from ..services.intent import interpret
 from ..services.validators import validate_sql
 from ..infra.db import list_schemas, execute_sql
 
@@ -52,6 +58,34 @@ async def post_ask(body: AskBody, request: Request):
     t0 = time.time()
     account_id = request.headers.get("x-account-id")
 
+    # 1) Interpretar pergunta para extrair parâmetros
+    interp, interp_model = interpret(body.question)
+
+    # 2) Se houver preset_candidate e last_n, tentar executar preset determinístico
+    preset = (interp.get("preset_candidate") or "").strip() or None
+    if preset and preset in {"totais_ultimos_dias", "diario_ultimos_dias", "status_ultimos_dias"}:
+        params = {}
+        if interp.get("last_n") and (interp.get("last_unit") in (None, "days")):
+            params["days"] = int(interp["last_n"]) if str(interp["last_n"]).isdigit() else 7
+        # Executa preset se conseguiu montar params
+        if params:
+            try:
+                t0 = time.time()
+                cols, rows, psql = run_preset(preset, params)
+                timing_ms = int((time.time() - t0) * 1000)
+                return {
+                    "ok": True,
+                    "model": interp_model,
+                    "executed_sql": psql,
+                    "columns": cols,
+                    "rows": rows,
+                    "interpretation": interp,
+                    "timing_ms": timing_ms,
+                }
+            except Exception:
+                pass  # se preset falhar, cai para o fluxo LLM->SQL
+
+    # 3) Caso contrário, gera SQL via LLM (fluxo anterior)
     sql, rationale, model = generate_sql(question=body.question, account_id=account_id)
     ok, issues = validate_sql(sql)
     if not ok:
@@ -71,6 +105,7 @@ async def post_ask(body: AskBody, request: Request):
         "columns": cols,
         "rows": rows,
         "explanation": rationale,
+        "interpretation": interp,
         "timing_ms": timing_ms,
     }
 
