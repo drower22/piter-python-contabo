@@ -57,8 +57,14 @@ class OpenAIProvider:
             try:
                 with open(sys_prompt_file, "r", encoding="utf-8") as f:
                     sys_prompt = f.read().strip()
-            except Exception:
+                print(f"[DEBUG] OpenAIProvider: loaded system prompt from file {sys_prompt_file}")
+            except Exception as e:
+                print(f"[WARN] OpenAIProvider: failed to load system prompt from file {sys_prompt_file}: {e}")
                 sys_prompt = None
+        elif sys_prompt:
+            print("[DEBUG] OpenAIProvider: loaded system prompt from env var OPENAI_SYSTEM_PROMPT")
+        else:
+            print("[DEBUG] OpenAIProvider: using default system prompt")
         messages = []
         # Prepend system if not present
         if not history or history[0].get("role") != "system":
