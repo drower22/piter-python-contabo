@@ -5,7 +5,7 @@ import math
 from typing import Any, Dict, List, Optional
 
 from dex.infra.supabase import get_supabase
-from dex.infra.whatsapp import WhatsAppClient
+from dex.services.whatsapp_flow import handle_message, reply_via_whatsapp
 
 RATE_PER_SEC = float(os.getenv("WA_RATE_LIMIT_PER_SEC", "1"))  # msgs/seg
 MAX_ATTEMPTS = int(os.getenv("WA_MAX_ATTEMPTS", "5"))
@@ -134,7 +134,7 @@ def process_once():
             if sleep_s > 0:
                 time.sleep(sleep_s)
 
-            to = it.get('to') or it.get('user_number_normalized')
+            to = it.get('to_number') or it.get('user_number_normalized')
             if not to:
                 _finalize_failure(sb, it, 'Missing to')
                 continue

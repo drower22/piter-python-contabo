@@ -27,6 +27,18 @@ except ModuleNotFoundError:
     from dex.api.routers import forms as forms_router
     from dex.api.routers import whatsapp_webhook as wa_webhook_router
 
+# Importa router do SQL Agent (pode não existir em alguns ambientes)
+_SQLAGENT_IMPORT_ERR = None
+try:
+    from sqlagent.api.routes import router as sqlagent_router  # type: ignore
+    print("[DEBUG] SQLAgent importado com sucesso.")
+except Exception as _e:  # capture and log root cause
+    _SQLAGENT_IMPORT_ERR = _e
+    sqlagent_router = None  # type: ignore
+    import traceback as _tb
+    print("[WARN] Falha ao importar SQLAgent: ", repr(_e))
+    print(_tb.format_exc())
+
 print("[DEBUG] Iniciando Dex API...")
 
 # Carrega as variáveis de ambiente
@@ -78,6 +90,11 @@ app.add_middleware(
 app.include_router(health_router.router)
 app.include_router(forms_router.router)
 app.include_router(wa_webhook_router.router)
+if sqlagent_router:
+    app.include_router(sqlagent_router)
+    print("[DEBUG] Router do SQLAgent montado: rotas /qa e /v1/sql habilitadas.")
+else:
+    print("[WARN] Router do SQLAgent NÃO foi montado. Motivo: ", repr(_SQLAGENT_IMPORT_ERR))
 
 # Servir frontend estático (somente se existir)
 _BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))

@@ -3,7 +3,7 @@
 
 create table if not exists public.wa_outbox (
   id uuid primary key default gen_random_uuid(),
-  to text not null,
+  to_number text not null,
   user_number_normalized text,
   template_name text not null,
   lang_code text not null default 'pt_BR',
@@ -22,7 +22,7 @@ create table if not exists public.wa_outbox (
 
 -- Índices úteis
 create index if not exists idx_wa_outbox_status_sched on public.wa_outbox (status, scheduled_at);
-create index if not exists idx_wa_outbox_to on public.wa_outbox (to);
+create index if not exists idx_wa_outbox_to_number on public.wa_outbox (to_number);
 
 -- Trigger opcional para updated_at (se desejado)
 -- create extension if not exists moddatetime;
