@@ -56,6 +56,22 @@ async def post_interpret(body: AskBody):
     return {"ok": True, "model": model, "interpretation": data}
 
 
+class ChatMsg(BaseModel):
+    role: str  # user|assistant
+    content: str
+
+
+class InterpretChatBody(BaseModel):
+    history: list[ChatMsg]
+
+
+@router.post("/qa/interpret_chat")
+async def post_interpret_chat(body: InterpretChatBody):
+    hist = [m.model_dump() for m in body.history]
+    data, model = interpret_chat(hist)
+    return {"ok": True, "model": model, "interpretation": data}
+
+
 class ChatEchoBody(BaseModel):
     history: list[ChatMsg]
 
@@ -91,22 +107,6 @@ async def post_chat_echo(body: ChatEchoBody):
         errors.append(f"llama_err: {e}")
 
     return {"ok": False, "detail": "; ".join(errors) if errors else "no provider available"}
-
-
-class ChatMsg(BaseModel):
-    role: str  # user|assistant
-    content: str
-
-
-class InterpretChatBody(BaseModel):
-    history: list[ChatMsg]
-
-
-@router.post("/qa/interpret_chat")
-async def post_interpret_chat(body: InterpretChatBody):
-    hist = [m.model_dump() for m in body.history]
-    data, model = interpret_chat(hist)
-    return {"ok": True, "model": model, "interpretation": data}
 
 
 @router.post("/qa/ask")
