@@ -85,10 +85,32 @@ async def get_presets():
     return list_presets()
 
 
+@router.post("/qa/presets/build")
+async def post_build_preset(body: PresetExecBody):
+    """Somente constroi o SQL do preset sem executar (debug/inspecao)."""
+    from ..services.presets import PRESETS  # lazy import for introspection
+    if body.preset_id not in PRESETS:
+        raise HTTPException(status_code=404, detail="Preset inexistente")
+    params = body.params or {}
+    try:
+        sql = PRESETS[body.preset_id]["sql"](params)
+        return {"ok": True, "sql": sql}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/qa/presets/run")
 async def post_run_preset(body: PresetExecBody):
     try:
         cols, rows, sql = run_preset(body.preset_id, body.params or {})
         return {"ok": True, "columns": cols, "rows": rows, "executed_sql": sql}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # inclui o SQL gerado (se conseguir gerar) para facilitar o debug do cliente
+        from ..services.presets import PRESETS  # local import
+        sql_dbg = None
+        try:
+            if body.preset_id in PRESETS:
+                sql_dbg = PRESETS[body.preset_id]["sql"](body.params or {})
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail={"message": str(e), "sql": sql_dbg})

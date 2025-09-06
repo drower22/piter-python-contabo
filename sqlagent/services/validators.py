@@ -14,28 +14,31 @@ def _get_allowed_tables() -> Set[str]:
 def validate_sql(sql: str) -> Tuple[bool, List[str]]:
     issues: List[str] = []
 
-    # Single statement only
-    # crude check: more than one ';' not allowed, and must not end with ';' multiple times
-    if sql.count(";") > 1:
+    # Normalize: remove trailing semicolons and excessive whitespace
+    normalized = sql.strip().rstrip(";").strip()
+
+    # Single statement only (basic guard)
+    if normalized.count(";") > 0:
         issues.append("Multiple SQL statements are not allowed.")
 
     try:
-        expr = sqlglot.parse_one(sql, read="postgres")
+        # parse_one sometimes struggles with trailing semicolons; use normalized
+        expr = sqlglot.parse_one(normalized, read="postgres")
     except ParseError as e:
         return False, [f"parse_error: {e}"]
 
-    lowered = sql.strip().lower()
+    lowered = f" {normalized.lower()} "
 
     # Disallow dangerous statements
     banned = [
         " drop ", " alter ", " create ", " truncate ", " grant ", " revoke ",
         " insert ", " update ", " delete ", " call ", " begin ", " commit ", " rollback ",
     ]
-    if any(b in f" {lowered} " for b in banned):
+    if any(b in lowered for b in banned):
         issues.append("Only SELECT queries are allowed.")
 
-    # Require select root
-    if expr and expr.key != "Select":
+    # Require select root (be tolerant with Subquery/With/Union)
+    if expr and expr.key not in {"Select", "Subquery", "Union", "With"}:
         issues.append("Root statement must be SELECT.")
 
     # Allowlist of tables/views

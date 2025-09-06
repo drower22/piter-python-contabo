@@ -8,8 +8,10 @@
     model: document.getElementById('model'),
     timing: document.getElementById('timing'),
     sql: document.getElementById('sql'),
+    interp: document.getElementById('interp'),
     table: document.getElementById('table'),
     raw: document.getElementById('raw'),
+    logs: document.getElementById('logs'),
     cfgBackend: document.getElementById('cfgBackend'),
   };
 
@@ -44,24 +46,44 @@
       els.model.textContent = '';
       els.timing.textContent = '';
       els.sql.textContent = '';
+      els.interp.textContent = '';
       els.table.innerHTML = '';
       els.raw.textContent = '';
+      els.logs.textContent = '';
 
-      const res = await fetch(baseUrl.replace(/\/$/, '') + '/qa/ask', {
+      const url = baseUrl.replace(/\/$/, '') + '/qa/ask';
+      const payload = { question: q };
+      const t0 = performance.now();
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q })
+        body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const text = await res.text();
+      const t1 = performance.now();
+      let data;
+      try { data = JSON.parse(text); } catch { data = { _raw: text }; }
+
       els.raw.textContent = JSON.stringify(data, null, 2);
+      els.logs.textContent = [
+        `POST ${url}`,
+        `status: ${res.status}`,
+        `duration_ms: ${Math.round(t1 - t0)}`,
+        'payload: ' + JSON.stringify(payload),
+        'response: ' + (typeof data==='object'? JSON.stringify(data) : String(data))
+      ].join('\n');
+
       if(!res.ok || !data.ok){
-        alert('Falha: ' + (data?.detail?.message || res.status));
+        const msg = (data?.detail?.message || data?.detail || res.status);
+        alert('Falha: ' + msg);
+        if(data?.detail?.sql){ els.sql.textContent = data.detail.sql; }
         return;
       }
 
       els.model.textContent = data.model || '-';
       els.timing.textContent = data.timing_ms ?? '-';
       els.sql.textContent = data.executed_sql || '-';
+      els.interp.textContent = data.explanation || data.rationale || '-';
 
       if(Array.isArray(data.columns) && Array.isArray(data.rows)){
         const tbl = document.createElement('table');
