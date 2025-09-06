@@ -29,20 +29,12 @@ class OpenAIProvider:
             "Responda APENAS com o SQL bruto, sem comentários, explicações nem markdown."
         )
         # Use responses.create for the new SDK
-        kwargs = {}
-        temp = os.getenv("OPENAI_TEMPERATURE")
-        if temp:
-            try:
-                kwargs["temperature"] = float(temp)
-            except Exception:
-                pass
         resp = self.client.chat.completions.create(
             model=self.model_name,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
-            **kwargs,
         )
         text = resp.choices[0].message.content or ""
         text = text.strip()
@@ -72,16 +64,8 @@ class OpenAIProvider:
         if not history or history[0].get("role") != "system":
             messages.append({"role": "system", "content": sys_prompt or system_default})
         messages.extend(history)
-        kwargs = {}
-        temp = os.getenv("OPENAI_TEMPERATURE")
-        if temp:
-            try:
-                kwargs["temperature"] = float(temp)
-            except Exception:
-                pass
         resp = self.client.chat.completions.create(
             model=self.model_name,
             messages=messages,
-            **kwargs,
         )
         return (resp.choices[0].message.content or "").strip()
