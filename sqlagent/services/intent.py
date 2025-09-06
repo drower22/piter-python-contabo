@@ -117,3 +117,46 @@ def interpret(question: str) -> Tuple[Dict[str, Any], str]:
 
     # fallback mínimo
     return _normalize({"user_query": question, "preset_candidate": "totais_ultimos_dias"}), "fallback"
+
+
+def interpret_chat(history: list[dict]) -> Tuple[Dict[str, Any], str]:
+    """Multi-turn interpretation. history is a list of {role: user|assistant, content: str}.
+    Returns (intent_dict, model_used).
+    """
+    conv = "\n".join([f"{m.get('role','user')}: {m.get('content','')}" for m in history])
+    q_last = next((m.get('content','') for m in reversed(history) if m.get('role')=='user'), '')
+    prompt = (
+        PROMPT +
+        "\nHistórico de conversa (apenas contexto, extraia parâmetros do diálogo como um todo):\n" +
+        conv +
+        "\nObservação: Responda SOMENTE com JSON válido conforme schema.\n"
+    ).format(schema_keys=list(INTENT_SCHEMA.keys()), question=q_last)
+
+    errors = []
+
+    if OpenAIProvider is not None and os.getenv("OPENAI_API_KEY"):
+        try:
+            txt = OpenAIProvider(model=os.getenv("OPENAI_MODEL")).generate_sql(prompt)
+            data = _normalize(_extract_json(txt))
+            return data, os.getenv("OPENAI_MODEL", "openai")
+        except Exception as e:
+            errors.append(f"openai_err: {e}")
+
+    if GeminiProvider is not None and os.getenv("GEMINI_API_KEY"):
+        try:
+            from .providers.gemini import GeminiProvider as _G
+            txt = _G(model=os.getenv("GEMINI_MODEL")).generate_sql(prompt)
+            data = _normalize(_extract_json(txt))
+            return data, "gemini"
+        except Exception as e:
+            errors.append(f"gemini_err: {e}")
+
+    if GroqLlamaProvider is not None and os.getenv("GROQ_API_KEY"):
+        try:
+            txt = GroqLlamaProvider().generate_sql(prompt)
+            data = _normalize(_extract_json(txt))
+            return data, "llama"
+        except Exception as e:
+            errors.append(f"llama_err: {e}")
+
+    return _normalize({"user_query": q_last or (history[-1]["content"] if history else ""), "preset_candidate": "totais_ultimos_dias"}), "fallback"

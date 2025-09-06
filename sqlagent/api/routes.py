@@ -3,12 +3,28 @@ async def post_interpret(body: AskBody):
     data, model = interpret(body.question)
     return {"ok": True, "model": model, "interpretation": data}
 
+
+class ChatMsg(BaseModel):
+    role: str  # user|assistant
+    content: str
+
+
+class InterpretChatBody(BaseModel):
+    history: list[ChatMsg]
+
+
+@router.post("/qa/interpret_chat")
+async def post_interpret_chat(body: InterpretChatBody):
+    hist = [m.model_dump() for m in body.history]
+    data, model = interpret_chat(hist)
+    return {"ok": True, "model": model, "interpretation": data}
+
 import time
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 from ..services.sqlgen import generate_sql
 from ..services.presets import list_presets, run_preset
-from ..services.intent import interpret
+from ..services.intent import interpret, interpret_chat
 from ..services.validators import validate_sql
 from ..infra.db import list_schemas, execute_sql
 
