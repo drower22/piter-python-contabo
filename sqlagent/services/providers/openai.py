@@ -58,10 +58,19 @@ class OpenAIProvider:
         system_default = (
             "Você é um assistente útil. Responda de forma objetiva."
         )
+        # Load system prompt from env or file if provided
+        sys_prompt = os.getenv("OPENAI_SYSTEM_PROMPT")
+        sys_prompt_file = os.getenv("OPENAI_SYSTEM_PROMPT_FILE")
+        if not sys_prompt and sys_prompt_file and os.path.isfile(sys_prompt_file):
+            try:
+                with open(sys_prompt_file, "r", encoding="utf-8") as f:
+                    sys_prompt = f.read().strip()
+            except Exception:
+                sys_prompt = None
         messages = []
         # Prepend system if not present
         if not history or history[0].get("role") != "system":
-            messages.append({"role": "system", "content": system_default})
+            messages.append({"role": "system", "content": sys_prompt or system_default})
         messages.extend(history)
         kwargs = {}
         temp = os.getenv("OPENAI_TEMPERATURE")
