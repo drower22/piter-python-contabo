@@ -53,6 +53,18 @@
     </div>
 
     <div class="card">
+      <h2>Chat (interpretação)</h2>
+      <div id="chatBox" style="height:220px; overflow:auto; border:1px solid #333; border-radius:6px; padding:8px; background:#0e0e12;"></div>
+      <div class="row" style="margin-top:8px;">
+        <input id="chatInput" placeholder="Digite sua mensagem..." />
+        <button id="chatSend">Enviar</button>
+        <button id="chatExtract" style="margin-left:8px;">Extrair parâmetros</button>
+        <button id="chatClear" style="margin-left:8px;">Limpar</button>
+      </div>
+      <div class="muted">Use o chat para refinar a pergunta. "Extrair parâmetros" chamará <code>/qa/interpret_chat</code> com o histórico.</div>
+    </div>
+
+    <div class="card">
       <h2>Resultado</h2>
       <div class="muted">Modelo: <span id="model"></span> • Tempo: <span id="timing"></span> ms</div>
       <div class="muted">SQL executado:</div>

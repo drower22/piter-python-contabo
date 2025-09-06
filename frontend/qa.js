@@ -14,6 +14,12 @@
     raw: document.getElementById('raw'),
     logs: document.getElementById('logs'),
     cfgBackend: document.getElementById('cfgBackend'),
+    // chat
+    chatBox: document.getElementById('chatBox'),
+    chatInput: document.getElementById('chatInput'),
+    chatSend: document.getElementById('chatSend'),
+    chatExtract: document.getElementById('chatExtract'),
+    chatClear: document.getElementById('chatClear'),
   };
 
   const KEY = 'dex_cfg_v1';
@@ -88,6 +94,64 @@
   function renderCfg(){
     const url = (els.baseUrl.value||'').trim();
     if(els.cfgBackend) els.cfgBackend.textContent = url || '(defina acima)';
+  }
+
+  // --- Chat (interpretação) ---
+  const chat = { history: [] };
+  function chatAppend(role, content){
+    chat.history.push({ role, content });
+    const div = document.createElement('div');
+    div.style.margin = '4px 0';
+    div.innerHTML = `<b>${role}:</b> ${content}`;
+    els.chatBox.appendChild(div);
+    els.chatBox.scrollTop = els.chatBox.scrollHeight;
+  }
+  async function chatSend(){
+    const msg = (els.chatInput.value||'').trim();
+    if(!msg) return;
+    els.chatInput.value = '';
+    chatAppend('user', msg);
+  }
+  async function chatExtract(){
+    const baseUrl = (els.baseUrl.value||'').trim();
+    if(!baseUrl){ alert('Defina a base URL'); return; }
+    if(chat.history.length === 0){ alert('Envie ao menos 1 mensagem.'); return; }
+    try{
+      els.chatExtract.disabled = true;
+      const url = baseUrl.replace(/\/$/, '') + '/qa/interpret_chat';
+      const payload = { history: chat.history };
+      const t0 = performance.now();
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const text = await res.text();
+      const t1 = performance.now();
+      let data;
+      try { data = JSON.parse(text); } catch { data = { _raw: text }; }
+      els.logs.textContent = [
+        `POST ${url}`,
+        `status: ${res.status}`,
+        `duration_ms: ${Math.round(t1 - t0)}`,
+        'payload: ' + JSON.stringify(payload),
+        'response: ' + (typeof data==='object'? JSON.stringify(data) : String(data))
+      ].join('\n');
+      if(!res.ok || !data.ok){
+        alert('Falha: ' + (data?.detail?.message || data?.detail || res.status));
+        return;
+      }
+      els.model.textContent = data.model || '-';
+      els.interp.textContent = JSON.stringify(data.interpretation, null, 2);
+    }catch(e){
+      alert('Erro: ' + e);
+    }finally{
+      els.chatExtract.disabled = false;
+    }
+  }
+  function chatClear(){
+    chat.history = [];
+    els.chatBox.innerHTML = '';
   }
 
   async function ask(){
@@ -177,4 +241,7 @@
   els.useLocal.addEventListener('click', ()=>{ els.baseUrl.value='http://127.0.0.1:8000'; saveCfg(); });
   els.btnAsk.addEventListener('click', ask);
   els.btnInterpret.addEventListener('click', doInterpret);
+  els.chatSend.addEventListener('click', chatSend);
+  els.chatExtract.addEventListener('click', chatExtract);
+  els.chatClear.addEventListener('click', chatClear);
 })();

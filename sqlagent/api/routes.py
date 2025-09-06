@@ -1,24 +1,3 @@
-@router.post("/qa/interpret")
-async def post_interpret(body: AskBody):
-    data, model = interpret(body.question)
-    return {"ok": True, "model": model, "interpretation": data}
-
-
-class ChatMsg(BaseModel):
-    role: str  # user|assistant
-    content: str
-
-
-class InterpretChatBody(BaseModel):
-    history: list[ChatMsg]
-
-
-@router.post("/qa/interpret_chat")
-async def post_interpret_chat(body: InterpretChatBody):
-    hist = [m.model_dump() for m in body.history]
-    data, model = interpret_chat(hist)
-    return {"ok": True, "model": model, "interpretation": data}
-
 import time
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
@@ -65,6 +44,28 @@ class AskBody(BaseModel):
     top_k: int | None = None
     date_from: str | None = None
     date_to: str | None = None
+
+
+@router.post("/qa/interpret")
+async def post_interpret(body: AskBody):
+    data, model = interpret(body.question)
+    return {"ok": True, "model": model, "interpretation": data}
+
+
+class ChatMsg(BaseModel):
+    role: str  # user|assistant
+    content: str
+
+
+class InterpretChatBody(BaseModel):
+    history: list[ChatMsg]
+
+
+@router.post("/qa/interpret_chat")
+async def post_interpret_chat(body: InterpretChatBody):
+    hist = [m.model_dump() for m in body.history]
+    data, model = interpret_chat(hist)
+    return {"ok": True, "model": model, "interpretation": data}
 
 
 @router.post("/qa/ask")
