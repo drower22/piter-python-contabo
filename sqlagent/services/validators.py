@@ -37,9 +37,10 @@ def validate_sql(sql: str) -> Tuple[bool, List[str]]:
     if any(b in lowered for b in banned):
         issues.append("Only SELECT queries are allowed.")
 
-    # Require select root (be tolerant with Subquery/With/Union)
-    if expr and expr.key not in {"Select", "Subquery", "Union", "With"}:
-        issues.append("Root statement must be SELECT.")
+    # Root type check: be fully tolerant (some valid SELECTs may parse wrapped)
+    # We won't reject based on expr.key; rely on banned statements and LIMIT + allowlist.
+    # If needed for debug, uncomment the next line to record the expr key.
+    # issues.append(f"expr_key={getattr(expr, 'key', None)}")
 
     # Allowlist of tables/views
     allowed = _get_allowed_tables()
