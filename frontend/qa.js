@@ -3,22 +3,14 @@
     baseUrl: document.getElementById('baseUrl'),
     saveCfg: document.getElementById('saveCfg'),
     useLocal: document.getElementById('useLocal'),
-    question: document.getElementById('question'),
-    btnAsk: document.getElementById('btnAsk'),
-    btnInterpret: document.getElementById('btnInterpret'),
     model: document.getElementById('model'),
-    timing: document.getElementById('timing'),
-    sql: document.getElementById('sql'),
-    interp: document.getElementById('interp'),
-    table: document.getElementById('table'),
-    raw: document.getElementById('raw'),
+    reply: document.getElementById('reply'),
     logs: document.getElementById('logs'),
     cfgBackend: document.getElementById('cfgBackend'),
     // chat
     chatBox: document.getElementById('chatBox'),
     chatInput: document.getElementById('chatInput'),
     chatSend: document.getElementById('chatSend'),
-    chatExtract: document.getElementById('chatExtract'),
     chatClear: document.getElementById('chatClear'),
   };
 
@@ -96,7 +88,7 @@
     if(els.cfgBackend) els.cfgBackend.textContent = url || '(defina acima)';
   }
 
-  // --- Chat (interpretação) ---
+  // --- Chat ---
   const chat = { history: [] };
   function chatAppend(role, content){
     chat.history.push({ role, content });
@@ -111,14 +103,11 @@
     if(!msg) return;
     els.chatInput.value = '';
     chatAppend('user', msg);
-  }
-  async function chatExtract(){
+    // call backend
     const baseUrl = (els.baseUrl.value||'').trim();
     if(!baseUrl){ alert('Defina a base URL'); return; }
-    if(chat.history.length === 0){ alert('Envie ao menos 1 mensagem.'); return; }
     try{
-      els.chatExtract.disabled = true;
-      const url = baseUrl.replace(/\/$/, '') + '/qa/interpret_chat';
+      const url = baseUrl.replace(/\/$/, '') + '/chat/echo';
       const payload = { history: chat.history };
       const t0 = performance.now();
       const res = await fetch(url, {
@@ -142,17 +131,18 @@
         return;
       }
       els.model.textContent = data.model || '-';
-      els.interp.textContent = JSON.stringify(data.interpretation, null, 2);
+      els.reply.textContent = data.reply || '';
+      chatAppend('assistant', data.reply || '(vazio)');
     }catch(e){
       alert('Erro: ' + e);
-    }finally{
-      els.chatExtract.disabled = false;
     }
   }
   function chatClear(){
     chat.history = [];
     els.chatBox.innerHTML = '';
-  }
+    els.reply.textContent = '';
+    els.model.textContent = '';
+    }
 
   async function ask(){
     const baseUrl = (els.baseUrl.value||'').trim();
@@ -239,9 +229,6 @@
   loadCfg();
   els.saveCfg.addEventListener('click', saveCfg);
   els.useLocal.addEventListener('click', ()=>{ els.baseUrl.value='http://127.0.0.1:8000'; saveCfg(); });
-  els.btnAsk.addEventListener('click', ask);
-  els.btnInterpret.addEventListener('click', doInterpret);
   els.chatSend.addEventListener('click', chatSend);
-  els.chatExtract.addEventListener('click', chatExtract);
   els.chatClear.addEventListener('click', chatClear);
 })();

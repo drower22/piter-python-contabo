@@ -45,3 +45,20 @@ class OpenAIProvider:
             if text.lower().startswith("sql"):
                 text = text[3:].lstrip("\n")
         return text.strip()
+
+    def generate_text(self, history: list[dict]) -> str:
+        """history: list of {role, content}. Returns assistant text."""
+        system_default = (
+            "Você é um assistente útil. Responda de forma objetiva."
+        )
+        messages = []
+        # Prepend system if not present
+        if not history or history[0].get("role") != "system":
+            messages.append({"role": "system", "content": system_default})
+        messages.extend(history)
+        resp = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=messages,
+            temperature=0.2,
+        )
+        return (resp.choices[0].message.content or "").strip()

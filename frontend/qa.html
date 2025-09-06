@@ -43,38 +43,22 @@
     </div>
 
     <div class="card">
-      <h2>Pergunta</h2>
-      <div class="row">
-        <input id="question" placeholder="Ex.: total de pedidos e valor por dia nos últimos 7 dias" />
-        <button id="btnAsk">Perguntar</button>
-        <button id="btnInterpret" style="margin-left:8px;">Interpretar</button>
-      </div>
-      <div class="muted">A resposta executa SQL validado na view permitida (ex.: <code>v_ifood_order_ledger</code>).</div>
-    </div>
-
-    <div class="card">
-      <h2>Chat (interpretação)</h2>
+      <h2>Chat</h2>
       <div id="chatBox" style="height:220px; overflow:auto; border:1px solid #333; border-radius:6px; padding:8px; background:#0e0e12;"></div>
       <div class="row" style="margin-top:8px;">
         <input id="chatInput" placeholder="Digite sua mensagem..." />
         <button id="chatSend">Enviar</button>
-        <button id="chatExtract" style="margin-left:8px;">Extrair parâmetros</button>
         <button id="chatClear" style="margin-left:8px;">Limpar</button>
       </div>
-      <div class="muted">Use o chat para refinar a pergunta. "Extrair parâmetros" chamará <code>/qa/interpret_chat</code> com o histórico.</div>
+      <div class="muted">Conversação simples com o GPT. O backend chama <code>/chat/echo</code>.</div>
     </div>
 
     <div class="card">
-      <h2>Resultado</h2>
-      <div class="muted">Modelo: <span id="model"></span> • Tempo: <span id="timing"></span> ms</div>
-      <div class="muted">SQL executado:</div>
-      <pre id="sql"></pre>
-      <div class="muted">Interpretação (rationale):</div>
-      <pre id="interp"></pre>
-      <div class="muted">Tabela:</div>
-      <div id="table"></div>
-      <div class="muted">Resposta bruta:</div>
-      <pre id="raw"></pre>
+      <h2>Resposta</h2>
+      <div class="muted">Modelo: <span id="model"></span></div>
+      <pre id="reply"></pre>
+      <h3>Logs</h3>
+      <pre id="logs"></pre>
     </div>
 
     <div class="card">

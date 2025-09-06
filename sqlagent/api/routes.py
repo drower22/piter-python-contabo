@@ -6,6 +6,9 @@ from ..services.presets import list_presets, run_preset
 from ..services.intent import interpret, interpret_chat
 from ..services.validators import validate_sql
 from ..infra.db import list_schemas, execute_sql
+from ..services.providers.openai import OpenAIProvider
+from ..services.providers.gemini import GeminiProvider
+from ..services.providers.groq import GroqLlamaProvider
 
 router = APIRouter()
 
@@ -50,6 +53,43 @@ class AskBody(BaseModel):
 async def post_interpret(body: AskBody):
     data, model = interpret(body.question)
     return {"ok": True, "model": model, "interpretation": data}
+
+
+class ChatEchoBody(BaseModel):
+    history: list[ChatMsg]
+
+
+@router.post("/chat/echo")
+async def post_chat_echo(body: ChatEchoBody):
+    """Minimal chat endpoint: returns a text reply from the first available provider."""
+    hist = [m.model_dump() for m in body.history]
+
+    errors = []
+    # OpenAI first
+    try:
+        if OpenAIProvider and OpenAIProvider is not None:
+            reply = OpenAIProvider().generate_text(hist)
+            return {"ok": True, "model": os.getenv("OPENAI_MODEL", "openai"), "reply": reply}
+    except Exception as e:
+        errors.append(f"openai_err: {e}")
+
+    # Gemini fallback (reuse SQL generator method as plain text)
+    try:
+        if GeminiProvider and GeminiProvider is not None and os.getenv("GEMINI_API_KEY"):
+            txt = GeminiProvider().generate_sql("\n".join([f"{m['role']}: {m['content']}" for m in hist]))
+            return {"ok": True, "model": "gemini", "reply": txt}
+    except Exception as e:
+        errors.append(f"gemini_err: {e}")
+
+    # Groq fallback
+    try:
+        if GroqLlamaProvider and GroqLlamaProvider is not None and os.getenv("GROQ_API_KEY"):
+            txt = GroqLlamaProvider().generate_sql("\n".join([f"{m['role']}: {m['content']}" for m in hist]))
+            return {"ok": True, "model": "llama", "reply": txt}
+    except Exception as e:
+        errors.append(f"llama_err: {e}")
+
+    return {"ok": False, "detail": "; ".join(errors) if errors else "no provider available"}
 
 
 class ChatMsg(BaseModel):
