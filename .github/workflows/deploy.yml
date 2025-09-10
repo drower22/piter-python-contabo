@@ -65,7 +65,11 @@ jobs:
             rm -rf /home/piter/piter-app
             
             echo "--- Cloning fresh repository ---"
-            git clone --branch main git@github.com:drower22/piter-python-contabo.git /home/piter/piter-app
+            if ! command -v git >/dev/null 2>&1; then
+              echo "Installing git..."
+              sudo apt-get update -y && sudo apt-get install -y git
+            fi
+            git clone --branch main https://github.com/drower22/piter-python-contabo.git /home/piter/piter-app
             cd /home/piter/piter-app
             if [ ! -d .venv ]; then
               python3 -m venv .venv
