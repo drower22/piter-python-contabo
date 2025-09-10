@@ -35,9 +35,9 @@ def handle_message(conversation: Dict[str, Any], message: Dict[str, Any]) -> Flo
 
     if step == 'welcome':
         reply = (
-            "Olá! Eu sou o Dex. Como posso ajudar?\n"
-            "1) Conciliação\n"
-            "2) Relatório Financeiro\n"
+            "Olá! Eu sou o Piter. Como posso ajudar?\n"
+            "1) Consultas/Conciliação (SQL)\n"
+            "2) Relatório Financeiro (SQL)\n"
             "3) Suporte"
         )
         new_step = 'menu'
@@ -48,8 +48,7 @@ def handle_message(conversation: Dict[str, Any], message: Dict[str, Any]) -> Flo
         choice = (text or '').strip()
         if choice.startswith('1'):
             reply = (
-                "Perfeito! Para conciliação, envie sua planilha ou acesse o formulário web: /forms/upload.\n"
-                "Se preferir, responda com seu account_id para eu já vincular:"
+                "Perfeito! Para conciliação/consultas via SQL, me informe seu account_id para eu vincular o contexto."
             )
             new_step = 'collect_account_for_conciliation'
         elif choice.startswith('2'):
@@ -70,7 +69,7 @@ def handle_message(conversation: Dict[str, Any], message: Dict[str, Any]) -> Flo
             context['account_id'] = account_id
             _set_state(conversation['id'], 'conciliation_ready', context)
             reply = (
-                f"Account {account_id} vinculado. Envie o arquivo .xlsx aqui mesmo ou use o formulário em /forms/upload."
+                f"Account {account_id} vinculado. Você pode agora enviar sua solicitação de conciliação/consulta."
             )
             return FlowResult(reply_text=reply, new_step='conciliation_ready', context_patch={'account_id': account_id})
         else:

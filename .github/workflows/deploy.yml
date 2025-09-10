@@ -1,4 +1,4 @@
-name: Deploy to Contabo
+name: Deploy Piter to Contabo
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
           script: |
             echo "SSH OK on $(hostname)"
 
-      - name: Remote deploy
+      - name: Remote deploy Piter
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
@@ -31,10 +31,10 @@ jobs:
           port: 22
           script: |
             set -e
-            cd /home/dex/dex-app || exit 1
+            cd /home/piter/piter-app || exit 1
             if [ ! -d .git ]; then
-              git clone --branch main git@github.com:drower22/dex-contabo.git /home/dex/dex-app
-              cd /home/dex/dex-app
+              git clone --branch main git@github.com:drower22/piter-python-contabo.git /home/piter/piter-app
+              cd /home/piter/piter-app
             fi
             git fetch --all
             git reset --hard origin/main
@@ -49,6 +49,6 @@ jobs:
               pip install -r backend/requirements.txt
             fi
             deactivate
-            sudo systemctl restart dex-api
+            sudo systemctl restart piter-api
             sudo systemctl reload nginx || true
-            systemctl status dex-api --no-pager -n 10 || true
+            systemctl status piter-api --no-pager -n 10 || true

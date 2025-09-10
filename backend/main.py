@@ -18,14 +18,14 @@ for _p in (_PROJECT_ROOT, _THIS_FILE_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 try:
-    from backend.dex.api.routers import health as health_router
-    from backend.dex.api.routers import forms as forms_router
-    from backend.dex.api.routers import whatsapp_webhook as wa_webhook_router
+    from backend.Piter.api.routers import health as health_router
+    from backend.Piter.api.routers import forms as forms_router
+    from backend.Piter.api.routers import whatsapp_webhook as wa_webhook_router
 except ModuleNotFoundError:
     # Fallback quando o pacote raiz 'backend' não está no PYTHONPATH
-    from dex.api.routers import health as health_router
-    from dex.api.routers import forms as forms_router
-    from dex.api.routers import whatsapp_webhook as wa_webhook_router
+    from Piter.api.routers import health as health_router
+    from Piter.api.routers import forms as forms_router
+    from Piter.api.routers import whatsapp_webhook as wa_webhook_router
 
 # Importa router do SQL Agent (pode não existir em alguns ambientes)
 _SQLAGENT_IMPORT_ERR = None
@@ -39,7 +39,7 @@ except Exception as _e:  # capture and log root cause
     print("[WARN] Falha ao importar SQLAgent: ", repr(_e))
     print(_tb.format_exc())
 
-print("[DEBUG] Iniciando Dex API...")
+print("[DEBUG] Iniciando Piter API...")
 
 # Carrega as variáveis de ambiente
 # 1) Carrega .env da pasta onde o processo é iniciado (raiz do projeto)
@@ -71,8 +71,8 @@ print("[DEBUG] Cliente Supabase inicializado.")
 
 # Cria a aplicação FastAPI
 app = FastAPI(
-    title="Dex API",
-    description="API para uploads Financeiro/Conciliação e processamento.",
+    title="Piter API",
+    description="Agente Piter: consultas SQL no Supabase e notificações via WhatsApp.",
     version="1.0.0"
 )
 print("[DEBUG] FastAPI inicializado.")
@@ -86,7 +86,7 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# Inclui novos routers do módulo dex
+# Inclui routers do agente Piter
 app.include_router(health_router.router)
 app.include_router(forms_router.router)
 app.include_router(wa_webhook_router.router)
@@ -134,192 +134,39 @@ def _ensure_unique_path(supabase_client: Client, bucket: str, user_id: str, file
 @app.get("/", tags=["Status"], summary="Verifica se a API está online")
 def read_root():
     """Endpoint raiz para verificar a saúde da API."""
-    return {"status": "ok", "message": "Bem-vindo à Dex API!"}
+    return {"status": "ok", "message": "Bem-vindo à Piter API!"}
 
-@app.post("/upload/planilha", tags=["Uploads"], summary="Faz upload de uma planilha para o Supabase Storage")
+@app.post("/upload/planilha", tags=["Uploads"], summary="[Desativado] Upload via bucket")
 async def upload_planilha(
-    file: UploadFile = File(None, description="Arquivo de planilha (xlsx, csv) para upload."),
-    data: UploadFile = File(None, description="Alias de arquivo (caso a ferramenta envie como 'data')."),
-    user_id: str = Form(None, description="ID do usuário/conta."),
-    account_id: str = Form(None, description="Alias para ID da conta (equivalente a user_id)."),
-    filename: str = Form(..., description="Nome original do arquivo a ser salvo no bucket."),
+    file: UploadFile = File(None),
+    data: UploadFile = File(None),
+    user_id: str = Form(None),
+    account_id: str = Form(None),
+    filename: str = Form(...),
     background_tasks: BackgroundTasks = None
 ):
-    """
-    Recebe um arquivo de planilha via formulário multipart e o envia para o bucket 'financeiro' no Supabase Storage.
-    O caminho no bucket será estruturado como: `user_id/filename`.
-    """
-    try:
-        bucket_name = "financeiro"
-        # Gera caminho único (evita sobrescrever se já existir arquivo com mesmo nome)
-        if file:
-            upload_file = file
-        elif data:
-            upload_file = data
-        else:
-            raise HTTPException(status_code=400, detail="Nenhum arquivo fornecido.")
-
-        if user_id:
-            normalized_user_id = user_id
-        elif account_id:
-            normalized_user_id = account_id
-        else:
-            raise HTTPException(status_code=400, detail="Nenhum ID de usuário ou conta fornecido.")
-
-        path_in_bucket = _ensure_unique_path(supabase, bucket_name, normalized_user_id, filename)
-
-        # Lê o conteúdo do arquivo em bytes
-        contents = await upload_file.read()
-
-        # Faz o upload para o Supabase Storage SEM sobrescrever automaticamente
-        response = supabase.storage.from_(bucket_name).upload(
-            path=path_in_bucket,
-            file=contents,
-            file_options={"cache-control": "3600", "upsert": "false"}
-        )
-
-        # Salve o storage_path exatamente como foi salvo (pode ter prefixo de timestamp)
-        storage_path = f"{bucket_name}/{path_in_bucket}"
-
-        return JSONResponse(
-            status_code=200,
-            content={
-                "message": "Upload realizado com sucesso!",
-                "path": storage_path
-            }
-        )
-    except Exception as e:
-        # Em caso de erro, retorna uma resposta com status 500
-        raise HTTPException(status_code=500, detail=f"Ocorreu um erro no upload: {str(e)}")
+    return JSONResponse(status_code=410, content={"error": "Endpoint desativado no Piter. O agente opera via consultas SQL, sem upload/buckets."})
 
 # =======================
 # Endpoints Frontend Aux
 # =======================
 
-@app.post("/frontend/upload/financeiro", tags=["Frontend"], summary="Frontend: Upload para bucket financeiro via script e cria registro")
+@app.post("/frontend/upload/financeiro", tags=["Frontend"], summary="[Desativado] Upload financeiro via script")
 async def frontend_upload_financeiro(
     file: UploadFile = File(...),
     account_id: str = Form(...),
     file_id: str = Form(None)
 ):
-    """
-    Recebe arquivo do frontend, usa scripts/upload_to_bucket.py para enviar ao bucket 'financeiro',
-    cria registro em received_files e retorna file_id e storage_path.
-    """
-    import tempfile
-    try:
-        # Gera file_id se não enviado
-        file_id = file_id or str(uuid.uuid4())
+    return JSONResponse(status_code=410, content={"error": "Endpoint desativado no Piter. Sem uploads/buckets/scripts."})
 
-        # Salva arquivo temporário
-        suffix = os.path.splitext(file.filename or "")[1] or ".bin"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            contents = await file.read()
-            tmp.write(contents)
-            temp_path = tmp.name
-
-        # Executa o script de upload
-        script_path = os.path.join(os.path.dirname(__file__), 'scripts', 'upload_to_bucket.py')
-        cmd = [
-            sys.executable,
-            script_path,
-            "--filepath", temp_path,
-            "--bucket-name", "financeiro",
-            "--file-id", file_id,
-            "--account-id", account_id,
-        ]
-        proc = subprocess.run(cmd, capture_output=True, text=True)
-
-        if proc.returncode != 0:
-            raise HTTPException(status_code=500, detail=f"Falha no upload: {proc.stderr.strip()}")
-
-        # Extrai caminho do stdout do script
-        stdout = proc.stdout
-        # Ex.: SUCESSO: ... caminho 'ACCOUNT/FINALNAME' no bucket 'financeiro'
-        m = re.search(r"caminho '([^']+)' no bucket '([^']+)'", stdout)
-        if not m:
-            raise HTTPException(status_code=500, detail=f"Upload ok, mas não foi possível obter o caminho salvo. STDOUT: {stdout}")
-        path_in_bucket, bucket = m.group(1), m.group(2)
-        storage_path = f"{bucket}/{path_in_bucket}"
-
-        # Cria/insere registro em received_files
-        record = {
-            "id": file_id,
-            "account_id": account_id,
-            "storage_path": storage_path,
-            "status": "pending",
-        }
-        try:
-            supabase.table('received_files').insert(record).execute()
-        except Exception as e:
-            # Se já existir, apenas atualiza o caminho/status
-            try:
-                supabase.table('received_files').update({"storage_path": storage_path, "status": "pending"}).eq('id', file_id).execute()
-            except Exception as e2:
-                raise HTTPException(status_code=500, detail=f"Falha ao registrar arquivo no banco: {e2}")
-
-        return {"message": "Upload financeiro realizado com sucesso.", "file_id": file_id, "storage_path": storage_path}
-    finally:
-        try:
-            if 'temp_path' in locals() and os.path.exists(temp_path):
-                os.remove(temp_path)
-        except Exception:
-            pass
-
-@app.post("/frontend/upload-process/conciliacao", tags=["Frontend"], summary="Frontend: Upload para conciliação e dispara processamento")
+@app.post("/frontend/upload-process/conciliacao", tags=["Frontend"], summary="[Desativado] Upload conciliação e processamento")
 async def frontend_upload_process_conciliacao(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     account_id: str = Form(...),
     file_id: str = Form(None)
 ):
-    """
-    Faz upload do arquivo para o bucket 'conciliacao', cria registro em received_files e agenda processamento.
-    """
-    import tempfile
-    try:
-        file_id = file_id or str(uuid.uuid4())
-        suffix = os.path.splitext(file.filename or "")[1] or ".bin"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            contents = await file.read()
-            tmp.write(contents)
-            temp_path = tmp.name
-
-        # Reutiliza lógica do endpoint de upload direto para Storage (sem o script), para simplicidade
-        bucket_name = "conciliacao"
-        # Gera caminho único
-        path_in_bucket = _ensure_unique_path(supabase, bucket_name, account_id, os.path.basename(file.filename or f"{file_id}{suffix}"))
-        with open(temp_path, 'rb') as fh:
-            supabase.storage.from_(bucket_name).upload(
-                path=path_in_bucket,
-                file=fh.read(),
-                file_options={"cache-control": "3600", "upsert": "false"}
-            )
-
-        storage_path = f"{bucket_name}/{path_in_bucket}"
-
-        # Registra em received_files
-        record = {
-            "id": file_id,
-            "account_id": account_id,
-            "storage_path": storage_path,
-            "status": "pending",
-        }
-        try:
-            supabase.table('received_files').insert(record).execute()
-        except Exception:
-            supabase.table('received_files').update({"storage_path": storage_path, "status": "pending"}).eq('id', file_id).execute()
-
-        # Agenda processamento usando o orquestrador existente
-        background_tasks.add_task(run_processing_conciliacao, file_id, storage_path)
-
-        return {"message": "Upload e processamento de conciliação agendado.", "file_id": file_id, "storage_path": storage_path}
-    finally:
-        try:
-            if 'temp_path' in locals() and os.path.exists(temp_path):
-                os.remove(temp_path)
-        except Exception:
-            pass
+    return JSONResponse(status_code=410, content={"error": "Endpoint desativado no Piter. Sem uploads/buckets/scripts."})
 
 import requests  # Adicionado para download de arquivos via URL
 from pydantic import BaseModel
@@ -349,60 +196,15 @@ except ModuleNotFoundError:
         update_file_status,
     )
 
-@app.post("/upload/planilha-url", tags=["Uploads"], summary="Faz upload de uma planilha a partir de uma URL para o Supabase Storage")
+@app.post("/upload/planilha-url", tags=["Uploads"], summary="[Desativado] Upload via URL para Storage")
 async def upload_planilha_url(
     request: Request,
-    file_url: str = Form(..., description="URL do arquivo de planilha (xlsx, csv) para upload."),
-    user_id: str = Form(..., description="ID do usuário ou conta que está enviando o arquivo."),
-    filename: str = Form(..., description="Nome original do arquivo a ser salvo no bucket."),
-    tipo: str = Form(..., description="Tipo da planilha: financeiro ou conciliacao.")
+    file_url: str = Form(..., description="URL do arquivo de planilha (desativado)."),
+    user_id: str = Form(..., description="ID (desativado)."),
+    filename: str = Form(..., description="Nome do arquivo (desativado)."),
+    tipo: str = Form(..., description="Tipo (desativado).")
 ):
-    """
-    Faz o download do arquivo da URL fornecida e envia para o bucket 'financeiro' no Supabase Storage.
-    O caminho no bucket será estruturado como: `tipo/user_id/filename`, onde tipo pode ser 'financeiro' ou 'conciliacao'.
-    Se o header Authorization for enviado, ele será repassado na requisição de download.
-    """
-    try:
-        tipo = tipo.lower().strip()
-        if tipo not in ["financeiro", "conciliacao"]:
-            return JSONResponse(status_code=400, content={"error": "Tipo inválido. Use 'financeiro' ou 'conciliacao'."})
-        bucket_name = tipo  # bucket = financeiro ou conciliacao
-        # Gera caminho único para evitar sobrescrita
-        path_in_bucket = _ensure_unique_path(supabase, bucket_name, user_id, filename)
-
-        # Busca o header Authorization, se enviado
-        headers = {}
-        auth_header = request.headers.get("authorization")
-        if auth_header:
-            headers["Authorization"] = auth_header
-
-        # Faz o download do arquivo, repassando o header Authorization se existir
-        response = requests.get(file_url, headers=headers)
-        response.raise_for_status()
-        contents = response.content
-
-        # Faz o upload para o Supabase Storage SEM sobrescrever automaticamente
-        upload_response = supabase.storage.from_(bucket_name).upload(
-            path=path_in_bucket,
-            file=contents,
-            file_options={"cache-control": "3600", "upsert": "false"}
-        )
-
-        # O path retornado deve ser o LÓGICO, refletindo o nome final salvo
-        storage_path_for_db = f"{tipo}/{path_in_bucket}"
-
-        return JSONResponse(
-            status_code=200,
-            content={
-                "message": f"Upload realizado com sucesso via URL para {tipo}!",
-                "path": storage_path_for_db
-            }
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"error": str(e)}
-        )
+    return JSONResponse(status_code=410, content={"error": "Endpoint desativado no Piter. Sem uploads/buckets/scripts."})
 
 class ProcessRequest(BaseModel):
     file_id: str
@@ -491,14 +293,9 @@ def run_processing_financeiro(file_id: str):
         logger.flush()
 
 
-@app.post("/processar-planilha-financeiro", tags=["Processamento"], summary="Inicia o processamento de uma planilha FINANCEIRA em background")
+@app.post("/processar-planilha-financeiro", tags=["Processamento"], summary="[Desativado] Processamento financeiro")
 async def processar_planilha_financeiro_endpoint(process_request: ProcessFinanceiroRequest, background_tasks: BackgroundTasks):
-    """
-    [FINANCEIRO] Recebe um `file_id` e agenda o processamento da planilha financeira correspondente em background.
-    Retorna uma resposta imediata de sucesso.
-    """
-    background_tasks.add_task(run_processing_financeiro, process_request.file_id)
-    return {"message": "Processamento da planilha financeira agendado com sucesso!", "file_id": process_request.file_id}
+    return JSONResponse(status_code=410, content={"error": "Processamento via scripts desativado no Piter."})
 
 def run_processing_conciliacao(file_id: str, storage_path: str):
     """Função segura que executa o processamento de CONCILIAÇÃO em background."""
@@ -570,11 +367,6 @@ def run_processing_conciliacao(file_id: str, storage_path: str):
         if logger:
             logger.flush()
 
-@app.post("/processar-planilha-conciliacao", tags=["Processamento"], summary="Inicia o processamento de uma planilha de CONCILIAÇÃO em background")
+@app.post("/processar-planilha-conciliacao", tags=["Processamento"], summary="[Desativado] Processamento conciliação")
 async def processar_planilha_conciliacao_endpoint(process_request: ProcessRequest, background_tasks: BackgroundTasks):
-    """
-    [CONCILIAÇÃO] Recebe um `file_id` e agenda o processamento da planilha de conciliação correspondente em background.
-    Retorna uma resposta imediata de sucesso.
-    """
-    background_tasks.add_task(run_processing_conciliacao, process_request.file_id, process_request.storage_path)
-    return {"message": "Processamento da planilha de conciliação agendado com sucesso!", "file_id": process_request.file_id}
+    return JSONResponse(status_code=410, content={"error": "Processamento via scripts desativado no Piter."})

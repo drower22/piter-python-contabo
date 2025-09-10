@@ -1,103 +1,80 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="pt-BR">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Dex Tester</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-  <style>
-    :root{--bg:#0f172a;--panel:#111827;--muted:#94a3b8;--text:#e5e7eb;--accent:#22c55e;--warn:#f59e0b;--error:#ef4444}
-    *{box-sizing:border-box} body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;background:linear-gradient(135deg,#0f172a,#1f2937);color:var(--text)}
-    header{padding:20px 24px;border-bottom:1px solid #1f2937;background:rgba(17,24,39,.7);backdrop-filter: blur(8px)}
-    h1{margin:0;font-size:20px}
-    main{max-width:980px;margin:24px auto;padding:0 16px;display:grid;gap:16px}
-    .card{background:#0b1220;border:1px solid #1e293b;border-radius:12px;padding:16px}
-    .row{display:flex;gap:8px;flex-wrap:wrap}
-    input,button,textarea{border-radius:10px;border:1px solid #334155;background:#0b1220;color:var(--text);padding:10px 12px}
-    input,textarea{flex:1;min-width:220px}
-    textarea{min-height:140px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-    button{cursor:pointer}
-    .success{color:var(--accent)} .warn{color:var(--warn)} .error{color:var(--error)}
-    pre{white-space:pre-wrap;word-wrap:break-word;background:#060a13;border:1px solid #1e293b;padding:12px;border-radius:10px;max-height:360px;overflow:auto}
-    .muted{color:var(--muted);font-size:12px}
-  </style>
-</head>
-<body>
-  <header>
-    <h1>Dex • Testador de API</h1>
-    <div class="muted">Use para checar saúde, verificação do webhook e simular um inbound WhatsApp. Para testar o QA NL→SQL, acesse <a href="/frontend/qa.html" style="color:#22c55e">QA Tester</a>.</div>
-  </header>
-  <main>
-    <div class="card">
-      <h2>Config</h2>
-      <div class="row">
-        <input id="baseUrl" placeholder="https://dex-novo-railway-production.up.railway.app" />
-        <input id="verifyToken" placeholder="WHATSAPP_VERIFY_TOKEN" />
-        <input id="adminToken" placeholder="ADMIN_TOKEN (para envios)" />
-        <button id="saveCfg">Salvar</button>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Piter • Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      :root { --bg:#0b1020; --panel:#131a33; --text:#e9ecf1; --muted:#aeb7cc; --brand:#5b8cff; --ok:#18c29c; --err:#ff6b6b; }
+      * { box-sizing: border-box; }
+      body { margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:linear-gradient(180deg,#060913,#0b1020); color:var(--text); }
+      header { padding:24px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #1e2647; background:rgba(10,14,29,.6); backdrop-filter: blur(6px); position:sticky; top:0; }
+      .brand { font-weight:700; letter-spacing:.3px; }
+      .container { max-width: 960px; margin: 32px auto; padding: 0 20px; }
+      .grid { display:grid; gap:16px; grid-template-columns: repeat(12, 1fr); }
+      .card { grid-column: span 12; background:var(--panel); border:1px solid #1c2547; border-radius:14px; padding:20px; box-shadow: 0 10px 30px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.02); }
+      @media (min-width: 860px) { .span-6 { grid-column: span 6; } }
+      h2 { margin: 0 0 8px; font-size: 18px; }
+      p.muted { margin:0 0 16px; color:var(--muted); font-size: 14px; }
+      button, input, select, textarea { font: inherit; }
+      input, select, textarea { width:100%; padding:12px 14px; border-radius:10px; border:1px solid #263058; background:#0e1530; color:var(--text); outline:none; }
+      input::placeholder, textarea::placeholder { color:#7581a8; }
+      label { display:block; font-size:12px; color:#a1acd3; margin:10px 0 6px; }
+      .row { display:flex; gap:12px; }
+      .row > * { flex:1; }
+      .actions { display:flex; gap:12px; align-items:center; }
+      .btn { padding:10px 16px; border-radius:10px; border:1px solid #2b3a7a; background: linear-gradient(180deg, #5b8cff, #3a6eea); color:white; cursor:pointer; box-shadow: 0 6px 18px rgba(91,140,255,.35); }
+      .btn.secondary { background:#141c3f; border-color:#2b3a7a; color:#dbe5ff; }
+      .log { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; background:#0a1026; border:1px solid #1a2350; border-radius:10px; padding:12px; color:#cdd5f0; max-height:260px; overflow:auto; }
+      .badge { padding:3px 8px; border-radius:999px; font-size:11px; background:#0d1a3a; border:1px solid #22306a; color:#a6b6ff; }
+      .ok { color: var(--ok); }
+      .err { color: var(--err); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">Piter • Frontend</div>
+      <div><span class="badge" id="apiBaseLabel"></span></div>
+    </header>
+
+    <div class="container">
+      <div class="grid">
+        <section class="card span-6">
+          <h2>Status</h2>
+          <p class="muted">Verifica /health e mostra resposta.</p>
+          <div class="actions">
+            <button class="btn" id="btnHealth">Checar Health</button>
+            <div id="healthResult" class="badge"></div>
+          </div>
+        </section>
+
+        <section class="card span-6">
+          <h2>Enviar Template WhatsApp</h2>
+          <p class="muted">Teste rápido do endpoint de envio de template do WhatsApp.</p>
+          <label>To (ex: +5511999999999)</label>
+          <input id="to" placeholder="+5511999999999" />
+          <label>Template</label>
+          <input id="template" placeholder="nome_do_template" />
+          <label>Linguagem (ex: pt_BR)</label>
+          <input id="lang" value="pt_BR" />
+          <label>Variáveis (separadas por vírgula)</label>
+          <input id="vars" placeholder="João, 10:30" />
+          <div class="actions">
+            <button class="btn" id="btnSendTemplate">Enviar</button>
+            <button class="btn secondary" id="btnClearLog">Limpar log</button>
+          </div>
+        </section>
+
+        <section class="card" style="grid-column: span 12">
+          <h2>Log</h2>
+          <pre class="log" id="log"></pre>
+        </section>
       </div>
-      <div class="muted">Informe a URL do seu backend (ex.: https://api.usa-dex.com.br).</div>
     </div>
 
-    <div class="card">
-      <h2>Health</h2>
-      <div class="row">
-        <button id="btnHealth">GET /</button>
-      </div>
-      <pre id="outHealth"></pre>
-    </div>
-
-    <div class="card">
-      <h2>Webhook Verify</h2>
-      <div class="row">
-        <input id="challenge" placeholder="challenge (ex: 123456)" />
-        <button id="btnVerify">GET /_webhooks/whatsapp?hub.mode=subscribe...</button>
-      </div>
-      <pre id="outVerify"></pre>
-    </div>
-
-    <div class="card">
-      <h2>Simular inbound WhatsApp (POST)</h2>
-      <textarea id="payload" spellcheck="false">{
-  "entry": [{
-    "changes": [{
-      "value": {
-        "contacts": [{"profile": {"name": "Teste"}, "wa_id": "5511999999999"}],
-        "messages": [{
-          "from": "5511999999999",
-          "id": "wamid.TESTE",
-          "timestamp": "1724920000",
-          "type": "text",
-          "text": {"body": "oi"}
-        }]
-      }
-    }]
-  }]
-}</textarea>
-      <div class="row">
-        <button id="btnSimulate">POST /_webhooks/whatsapp</button>
-      </div>
-      <pre id="outSim"></pre>
-    </div>
-
-    <div class="card">
-      <h2>Enviar Template (real)</h2>
-      <div class="row">
-        <input id="tplName" placeholder="template (ex: whatsapp_verification)" />
-        <input id="tplLang" placeholder="language (ex: pt_BR)" />
-        <button id="btnReloadUsers">Listar usuários</button>
-      </div>
-      <div class="row">
-        <select id="usersList" style="min-width:300px"></select>
-        <input id="manualNumber" placeholder="ou número E.164 (ex: 5511999999999)" />
-        <button id="btnSendTemplate">Enviar Template</button>
-      </div>
-      <div class="muted">Escolha um usuário (usa users.whatsapp_number_normalized) ou informe um número manualmente.</div>
-      <pre id="outTpl"></pre>
-    </div>
-  </main>
-  <script src="app.js"></script>
-</body>
+    <script src="app.js"></script>
+  </body>
 </html>

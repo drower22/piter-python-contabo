@@ -13,9 +13,9 @@ router = APIRouter(tags=["Forms"], prefix="/forms")
 def signup_form():
     return """
     <html>
-      <head><title>Cadastro Dex (Teste)</title></head>
+      <head><title>Cadastro Piter (Teste)</title></head>
       <body style="font-family: sans-serif; max-width: 640px; margin: 2rem auto;">
-        <h2>Cadastro Dex (Teste)</h2>
+        <h2>Cadastro Piter (Teste)</h2>
         <form method="post" action="/forms/signup">
           <label>Nome:<br/><input name="name" required></label><br/><br/>
           <label>WhatsApp (com DDI):<br/>
