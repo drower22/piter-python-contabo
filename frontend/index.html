@@ -8,30 +8,43 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-      :root { --bg:#0b1020; --panel:#131a33; --text:#e9ecf1; --muted:#aeb7cc; --brand:#5b8cff; --ok:#18c29c; --err:#ff6b6b; }
+      /* Light theme with WhatsApp colors */
+      :root {
+        --bg:#f6f7f8;
+        --panel:#ffffff;
+        --text:#111827;
+        --muted:#6b7280;
+        --brand:#25D366;   /* WhatsApp green */
+        --brand-dark:#075E54; /* WhatsApp dark green */
+        --ok:#22c55e;
+        --err:#ef4444;
+        --border:#e5e7eb;
+      }
       * { box-sizing: border-box; }
-      body { margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:linear-gradient(180deg,#060913,#0b1020); color:var(--text); }
-      header { padding:24px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #1e2647; background:rgba(10,14,29,.6); backdrop-filter: blur(6px); position:sticky; top:0; }
-      .brand { font-weight:700; letter-spacing:.3px; }
+      body { margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#f6f7f8; color:var(--text); font-weight: 400; }
+      header { padding:20px 24px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border); background:#ffffff; position:sticky; top:0; }
+      .brand { font-weight:800; letter-spacing:.3px; color:var(--brand-dark); }
       .container { max-width: 960px; margin: 32px auto; padding: 0 20px; }
       .grid { display:grid; gap:16px; grid-template-columns: repeat(12, 1fr); }
-      .card { grid-column: span 12; background:var(--panel); border:1px solid #1c2547; border-radius:14px; padding:20px; box-shadow: 0 10px 30px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.02); }
+      .card { grid-column: span 12; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:20px; box-shadow: 0 6px 18px rgba(0,0,0,.06); }
       @media (min-width: 860px) { .span-6 { grid-column: span 6; } }
       h2 { margin: 0 0 8px; font-size: 18px; }
       p.muted { margin:0 0 16px; color:var(--muted); font-size: 14px; }
       button, input, select, textarea { font: inherit; }
-      input, select, textarea { width:100%; padding:12px 14px; border-radius:10px; border:1px solid #263058; background:#0e1530; color:var(--text); outline:none; }
-      input::placeholder, textarea::placeholder { color:#7581a8; }
-      label { display:block; font-size:12px; color:#a1acd3; margin:10px 0 6px; }
+      input, select, textarea { width:100%; padding:12px 14px; border-radius:10px; border:1px solid var(--border); background:#ffffff; color:#111827; outline:none; }
+      input::placeholder, textarea::placeholder { color:#9ca3af; }
+      label { display:block; font-size:12px; color:#374151; margin:10px 0 6px; }
       .row { display:flex; gap:12px; }
       .row > * { flex:1; }
       .actions { display:flex; gap:12px; align-items:center; }
-      .btn { padding:10px 16px; border-radius:10px; border:1px solid #2b3a7a; background: linear-gradient(180deg, #5b8cff, #3a6eea); color:white; cursor:pointer; box-shadow: 0 6px 18px rgba(91,140,255,.35); }
-      .btn.secondary { background:#141c3f; border-color:#2b3a7a; color:#dbe5ff; }
-      .log { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; background:#0a1026; border:1px solid #1a2350; border-radius:10px; padding:12px; color:#cdd5f0; max-height:260px; overflow:auto; }
-      .badge { padding:3px 8px; border-radius:999px; font-size:11px; background:#0d1a3a; border:1px solid #22306a; color:#a6b6ff; }
+      .btn { padding:10px 16px; border-radius:10px; border:1px solid #16a34a33; background: linear-gradient(180deg, var(--brand), #1fcc59); color:white; cursor:pointer; box-shadow: 0 6px 18px rgba(37,211,102,.35); }
+      .btn.secondary { background:#e5f7ec; border-color:#b7e9c8; color:#0b5c2f; }
+      .log { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; background:#0b1e13; border:1px solid #134e2d; border-radius:10px; padding:12px; color:#d1fae5; max-height:260px; overflow:auto; }
+      .badge { padding:3px 8px; border-radius:999px; font-size:11px; background:#e9fbf0; border:1px solid #b7e9c8; color:#0b5c2f; }
       .ok { color: var(--ok); }
       .err { color: var(--err); }
+      table { width:100%; border-collapse: collapse; }
+      th, td { padding:10px 8px; border-bottom:1px solid var(--border); text-align:left; font-size:14px; }
     </style>
   </head>
   <body>
@@ -55,7 +68,7 @@
           <h2>Enviar Template WhatsApp</h2>
           <p class="muted">Teste rápido do endpoint de envio de template do WhatsApp.</p>
           <label>To (ex: +5511999999999)</label>
-          <input id="to" placeholder="+5511999999999" />
+          <input id="to" value="+55" inputmode="tel" pattern="^\+\d{8,15}$" title="Use formato +DDI... apenas números" />
           <label>Template</label>
           <input id="template" placeholder="nome_do_template" />
           <label>Linguagem (ex: pt_BR)</label>
@@ -68,6 +81,8 @@
           </div>
         </section>
 
+        
+
         <section class="card" style="grid-column: span 12">
           <h2>Log</h2>
           <pre class="log" id="log"></pre>
@@ -75,6 +90,6 @@
       </div>
     </div>
 
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
   </body>
 </html>
