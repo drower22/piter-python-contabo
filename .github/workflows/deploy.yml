@@ -12,6 +12,20 @@ jobs:
       - name: Checkout (metadata only)
         uses: actions/checkout@v4
 
+      - name: Validate required secrets
+        run: |
+          if [ -z "${{ secrets.DEPLOY_HOST }}" ]; then echo "ERROR: DEPLOY_HOST secret is missing"; exit 1; fi
+          if [ -z "${{ secrets.DEPLOY_USER }}" ]; then echo "ERROR: DEPLOY_USER secret is missing"; exit 1; fi
+          if [ -z "${{ secrets.DEPLOY_SSH_KEY }}" ]; then echo "ERROR: DEPLOY_SSH_KEY secret is missing"; exit 1; fi
+
+      - name: Ping host
+        run: |
+          echo "Pinging ${{ secrets.DEPLOY_HOST }} ..."
+          if ! ping -c 3 -W 3 "${{ secrets.DEPLOY_HOST }}"; then
+            echo "ERROR: Ping to ${{ secrets.DEPLOY_HOST }} failed. Check DEPLOY_HOST (use the server IP, not a proxied hostname).";
+            exit 1;
+          fi
+
       - name: SSH ping (debug)
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -19,6 +33,10 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: 22
+          timeout: 90s
+          command_timeout: 15m
+          debug: true
+          script_stop: true
           script: |
             echo "SSH OK on $(hostname)"
 
@@ -29,15 +47,18 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: 22
+          timeout: 5m
+          command_timeout: 30m
+          debug: true
+          script_stop: true
           script: |
             set -e
-            cd /home/piter/piter-app || exit 1
-            if [ ! -d .git ]; then
-              git clone --branch main git@github.com:drower22/piter-python-contabo.git /home/piter/piter-app
-              cd /home/piter/piter-app
-            fi
-            git fetch --all
-            git reset --hard origin/main
+            echo "--- Ensuring clean deploy by removing old directory ---"
+            rm -rf /home/piter/piter-app
+            
+            echo "--- Cloning fresh repository ---"
+            git clone --branch main git@github.com:drower22/piter-python-contabo.git /home/piter/piter-app
+            cd /home/piter/piter-app
             if [ ! -d .venv ]; then
               python3 -m venv .venv
             fi
