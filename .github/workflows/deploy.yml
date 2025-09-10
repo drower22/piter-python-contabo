@@ -18,13 +18,21 @@ jobs:
           if [ -z "${{ secrets.DEPLOY_USER }}" ]; then echo "ERROR: DEPLOY_USER secret is missing"; exit 1; fi
           if [ -z "${{ secrets.DEPLOY_SSH_KEY }}" ]; then echo "ERROR: DEPLOY_SSH_KEY secret is missing"; exit 1; fi
 
-      - name: Ping host
+      - name: Debug and Test Connectivity
         run: |
-          echo "Pinging ${{ secrets.DEPLOY_HOST }} ..."
-          if ! ping -c 3 -W 3 "${{ secrets.DEPLOY_HOST }}"; then
-            echo "ERROR: Ping to ${{ secrets.DEPLOY_HOST }} failed. Check DEPLOY_HOST (use the server IP, not a proxied hostname).";
-            exit 1;
+          echo "--- Debugging Info ---"
+          echo "Attempting to connect to DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}"
+          echo "----------------------"
+          
+          echo "Testing TCP connection to port 22..."
+          if ! nc -zv -w 10 ${{ secrets.DEPLOY_HOST }} 22; then
+            echo "ERROR: Connection to ${{ secrets.DEPLOY_HOST }} on port 22 failed."
+            echo "Please verify the following:"
+            echo "1. The DEPLOY_HOST secret is the correct server IP (e.g., 89.116.29.187), NOT a proxied domain."
+            echo "2. The server's firewall (e.g., 'sudo ufw status') allows traffic on port 22."
+            exit 1
           fi
+          echo "Connection to port 22 successful." 
 
       - name: SSH ping (debug)
         uses: appleboy/ssh-action@v1.0.3
