@@ -32,6 +32,15 @@ def handle_message(conversation: Dict[str, Any], message: Dict[str, Any]) -> Flo
     """
     step, context = _get_state(conversation['id'])
     text = (message.get('text') or {}).get('body') if message.get('type') == 'text' else None
+    
+    # Processa botões clicados para manter continuidade do fluxo
+    button_id = message.get('button_id') if message.get('type') in ('interactive', 'button') else None
+
+    # Para botões de demo flows, não enviar resposta duplicada (já foi enviada pelo webhook)
+    if button_id in ('view_summary', 'view_consumption', 'view_low_stock', 'make_purchase_list', 'view_cmv_analysis', 'view_cmv_actions'):
+        # Atualiza estado para indicar que o usuário interagiu
+        _set_state(conversation['id'], 'demo_flow_active', context)
+        return FlowResult(reply_text=None, new_step='demo_flow_active')
 
     if step == 'welcome':
         reply = (
