@@ -1,44 +1,118 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 import asyncio
-import os
+import logging
+from typing import Optional
 
 router = APIRouter(tags=["Logs"])
 
-@router.get("/_admin/logs/stream")
-async def stream_logs():
-    """
-    Stream dos logs do sistema em tempo real
-    """
-    async def log_generator():
-        # Comando para seguir os logs do serviço piter-api em tempo real
-        cmd = ["journalctl", "-u", "piter-api", "-f", "-n", "0", "--no-pager"]
-        
+# ==============================
+# In-process async logging queue
+# ==============================
+_LOG_QUEUE: "asyncio.Queue[str]" | None = None
+
+
+class _QueueHandler(logging.Handler):
+    """Logging handler that pushes formatted log records to an asyncio.Queue."""
+
+    def __init__(self, queue_supplier):
+        super().__init__()
+        self._queue_supplier = queue_supplier
+
+    def emit(self, record: logging.LogRecord) -> None:
         try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+            msg = self.format(record)
+            q = self._queue_supplier()
+            if q is not None:
+                # Put nowait; drop if full to avoid blocking the app
+                try:
+                    q.put_nowait(msg)
+                except Exception:
+                    pass
+        except Exception:
+            # Never raise from logging
+            pass
 
-            while True:
-                if process.stdout:
-                    line_bytes = await process.stdout.readline()
-                    if not line_bytes:
-                        break
-                    line = line_bytes.decode('utf-8', errors='ignore').strip()
-                    # Formata para Server-Sent Events (SSE)
-                    yield f"data: {line}\n\n"
-                else:
-                    await asyncio.sleep(0.1)
 
-        except FileNotFoundError:
-            yield "data: ERRO: comando 'journalctl' não encontrado. O serviço de log não pode iniciar.\n\n"
-        except Exception as e:
-            yield f"data: ERRO: Falha ao ler logs do journalctl: {e}\n\n"
-        finally:
-            if 'process' in locals() and process.returncode is None:
-                process.terminate()
-                await process.wait()
-    
+def _ensure_log_queue() -> asyncio.Queue[str]:
+    global _LOG_QUEUE
+    if _LOG_QUEUE is None:
+        _LOG_QUEUE = asyncio.Queue(maxsize=1000)
+        # Attach handler to root logger once
+        root = logging.getLogger()
+        handler = _QueueHandler(lambda: _LOG_QUEUE)
+        formatter = logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s")
+        handler.setFormatter(formatter)
+        handler.setLevel(logging.INFO)
+        root.addHandler(handler)
+        # If root has no level set, default to INFO so we capture prints wrapped as logging elsewhere
+        if root.level == logging.NOTSET:
+            root.setLevel(logging.INFO)
+    return _LOG_QUEUE
+
+
+async def _journalctl_stream(service_name: str):
+    """Yield journalctl lines as SSE messages. Requires systemd access."""
+    cmd = [
+        "journalctl",
+        "-u",
+        service_name,
+        "-f",
+        "-n",
+        "0",
+        "--no-pager",
+    ]
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        while True:
+            if process.stdout is None:
+                await asyncio.sleep(0.2)
+                continue
+            line_bytes = await process.stdout.readline()
+            if not line_bytes:
+                break
+            line = line_bytes.decode("utf-8", errors="ignore").strip()
+            yield f"data: {line}\n\n"
+    except FileNotFoundError:
+        yield "data: WARN: journalctl não disponível neste ambiente. Usando logs internos da aplicação.\n\n"
+    except Exception as e:
+        yield f"data: ERRO: Falha no journalctl: {e}\n\n"
+
+
+async def _inprocess_stream():
+    """Yield messages from the in-process async logging queue as SSE messages."""
+    q = _ensure_log_queue()
+    # Emit a header message so clients know the stream está ativo
+    yield "data: Streaming de logs internos iniciado.\n\n"
+    while True:
+        try:
+            msg = await asyncio.wait_for(q.get(), timeout=5.0)
+            yield f"data: {msg}\n\n"
+        except asyncio.TimeoutError:
+            # Heartbeat para manter conexão viva
+            yield "data: [heartbeat]\n\n"
+
+
+@router.get("/_admin/logs/stream")
+async def stream_logs(request: Request, source: Optional[str] = None):
+    """
+    Stream de logs via SSE.
+    - Por padrão (source != 'journal'): usa uma fila interna assíncrona que coleta logs da aplicação.
+    - Se source == 'journal': tenta usar journalctl na unidade informada via query ?unit=piter-api (default: piter-api).
+    """
+
+    async def log_generator():
+        # Escolha da fonte
+        if source == "journal":
+            unit = request.query_params.get("unit", "piter-api")
+            async for line in _journalctl_stream(unit):
+                yield line
+        else:
+            async for line in _inprocess_stream():
+                yield line
+
     return StreamingResponse(log_generator(), media_type="text/event-stream")
