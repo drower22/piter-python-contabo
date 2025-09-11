@@ -10,16 +10,35 @@ async def stream_logs():
     """
     Stream dos logs do sistema em tempo real
     """
-    log_file = "/var/log/piter-api.log"  # Ajuste para o caminho real dos seus logs
-    
     async def log_generator():
-        with open(log_file, 'r') as f:
-            f.seek(0, 2)  # Vai para o final do arquivo
+        # Comando para seguir os logs do serviço piter-api em tempo real
+        cmd = ["journalctl", "-u", "piter-api", "-f", "-n", "0", "--no-pager"]
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
             while True:
-                line = f.readline()
-                if not line:
-                    await asyncio.sleep(0.5)
-                    continue
-                yield f"data: {line}\n\n"
+                if process.stdout:
+                    line_bytes = await process.stdout.readline()
+                    if not line_bytes:
+                        break
+                    line = line_bytes.decode('utf-8', errors='ignore').strip()
+                    # Formata para Server-Sent Events (SSE)
+                    yield f"data: {line}\n\n"
+                else:
+                    await asyncio.sleep(0.1)
+
+        except FileNotFoundError:
+            yield "data: ERRO: comando 'journalctl' não encontrado. O serviço de log não pode iniciar.\n\n"
+        except Exception as e:
+            yield f"data: ERRO: Falha ao ler logs do journalctl: {e}\n\n"
+        finally:
+            if 'process' in locals() and process.returncode is None:
+                process.terminate()
+                await process.wait()
     
     return StreamingResponse(log_generator(), media_type="text/event-stream")
