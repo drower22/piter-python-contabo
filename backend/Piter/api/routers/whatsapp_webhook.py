@@ -130,7 +130,11 @@ async def receive_update(request: Request):
             contact_id = _ensure_contact(sb, wa_number=to_number, profile_name=profile_name)
             conversation_id = _ensure_open_conversation(sb, contact_id)
 
-            _insert_message(sb, conversation_id, 'in', msg_type, m, wa_id)
+            try:
+                _insert_message(sb, conversation_id, 'in', msg_type, m, wa_id)
+            except Exception as _e_persist:
+                # Não bloquear o fluxo por erro de persistência
+                print('[WARN] failed to persist inbound message:', repr(_e_persist))
 
             # Trata cliques de botões (novo e legado): interactive.button_reply OU button.payload
             if msg_type in ('interactive', 'button'):
@@ -151,10 +155,14 @@ async def receive_update(request: Request):
                 except Exception:
                     pass
                 if btn_id:
-                    # Persist inbound
-                    _insert_message(sb, conversation_id, 'in', 'interactive', m, wa_id)
-                    # Roteia pelos fluxos
                     try:
+                        print('[DEBUG][WA] routing button id:', btn_id)
+                        # Persist inbound
+                        try:
+                            _insert_message(sb, conversation_id, 'in', 'interactive', m, wa_id)
+                        except Exception as _e_persist:
+                            print('[WARN] failed to persist button click:', repr(_e_persist))
+                        # Roteia pelos fluxos
                         if btn_id == 'view_summary':
                             # Dados mock para demo; em produção, consultar Supabase
                             summary = {
