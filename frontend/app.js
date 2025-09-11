@@ -9,12 +9,16 @@ const clearBtn = document.getElementById('btnClearLog');
 const btnTriggerImport = document.getElementById('btnTriggerImport');
 const btnTriggerLowStock = document.getElementById('btnTriggerLowStock');
 const btnTriggerCMV = document.getElementById('btnTriggerCMV');
+const btnSimSummary = document.getElementById('btnSimSummary');
+const btnSimLowStock = document.getElementById('btnSimLowStock');
+const btnSimCMV = document.getElementById('btnSimCMV');
 
 const label = document.getElementById('apiBaseLabel');
 if (label) label.textContent = API_BASE;
 // Inputs de destino
 const toTemplateEl = document.getElementById('to');
 const toTriggerEl = document.getElementById('toTrigger');
+const adminTokenEl = document.getElementById('adminToken');
 
 // Novo botão de copiar
 const copyBtn = document.getElementById('copyLog');
@@ -64,13 +68,37 @@ async function triggerFlow(path) {
   try {
     const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/demo/trigger/${path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...(adminTokenEl?.value ? { 'x-admin-token': adminTokenEl.value.trim() } : {})
+      },
       body: JSON.stringify({ to })
     });
     const data = await resp.json().catch(() => ({}));
     log(`[trigger:${path}]`, resp.status, data);
   } catch (e) {
     log(`[trigger:${path}][error]`, e.message || e);
+  }
+}
+
+async function simulateClick(btn_id) {
+  const to = (toTriggerEl?.value || '').trim();
+  if (!to) {
+    log('[simulate][warn] preencha To');
+    return;
+  }
+  try {
+    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/debug/simulate-click`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ to, btn_id })
+    });
+    const data = await resp.json().catch(() => ({}));
+    log(`[simulate:${btn_id}]`, resp.status, data);
+  } catch (e) {
+    log(`[simulate:${btn_id}][error]`, e.message || e);
   }
 }
 
@@ -190,6 +218,9 @@ if (btnLoadUsers) btnLoadUsers.addEventListener('click', fetchUsers);
 if (btnTriggerImport) btnTriggerImport.addEventListener('click', () => triggerFlow('importacao'));
 if (btnTriggerLowStock) btnTriggerLowStock.addEventListener('click', () => triggerFlow('estoque_baixo'));
 if (btnTriggerCMV) btnTriggerCMV.addEventListener('click', () => triggerFlow('cmv'));
+if (btnSimSummary) btnSimSummary.addEventListener('click', () => simulateClick('view_summary'));
+if (btnSimLowStock) btnSimLowStock.addEventListener('click', () => simulateClick('view_low_stock'));
+if (btnSimCMV) btnSimCMV.addEventListener('click', () => simulateClick('view_cmv_analysis'));
 
 // Inicializa
 loadSupabaseCfg();

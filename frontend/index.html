@@ -84,12 +84,20 @@
         <section class="card span-6">
           <h2>Fluxos de Demo</h2>
           <p class="muted">Dispare fluxos sem template (conversa aberta).</p>
+          <label>Admin Token (opcional)</label>
+          <input id="adminToken" placeholder="x-admin-token" />
           <label>To (ex: +5511999999999)</label>
           <input id="toTrigger" value="+55" inputmode="tel" pattern="^\+\d{8,15}$" title="Use formato +DDI... apenas números" />
           <div class="actions" style="margin-top:8px; flex-wrap: wrap;">
             <button class="btn" id="btnTriggerImport">Fluxo 1 • Importação concluída</button>
             <button class="btn" id="btnTriggerLowStock">Fluxo 2 • Estoque baixo</button>
             <button class="btn" id="btnTriggerCMV">Fluxo 3 • Desvio de CMV</button>
+          </div>
+          <p class="muted" style="margin-top:12px;">Simular clique de botão (sem depender da Meta)</p>
+          <div class="actions" style="flex-wrap: wrap;">
+            <button class="btn secondary" id="btnSimSummary">Simular • Ver resumo agora</button>
+            <button class="btn secondary" id="btnSimLowStock">Simular • Ver itens críticos</button>
+            <button class="btn secondary" id="btnSimCMV">Simular • Ver análise rápida</button>
           </div>
         </section>
 

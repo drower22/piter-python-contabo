@@ -466,6 +466,20 @@ async def simulate_click(req: SimulateClickRequest, request: Request):
     except Exception as _e_sim:
         import traceback as _tb
         print('[ERROR][WA][SIM] simulate-click failed:', repr(_e_sim))
+        # Se for HTTPError do requests, inclui corpo retornado pela Meta
+        try:
+            import requests as _rq
+            if isinstance(_e_sim, _rq.exceptions.HTTPError) and getattr(_e_sim, 'response', None) is not None:
+                meta_status = _e_sim.response.status_code
+                meta_body = _e_sim.response.text
+                return JSONResponse(status_code=502, content={
+                    "ok": False,
+                    "http_status": meta_status,
+                    "meta_body": meta_body,
+                    "error": str(_e_sim),
+                })
+        except Exception:
+            pass
         return JSONResponse(status_code=500, content={"ok": False, "error": str(_e_sim), "traceback": _tb.format_exc()})
 
 
