@@ -12,6 +12,9 @@ const btnTriggerCMV = document.getElementById('btnTriggerCMV');
 
 const label = document.getElementById('apiBaseLabel');
 if (label) label.textContent = API_BASE;
+// Inputs de destino
+const toTemplateEl = document.getElementById('to');
+const toTriggerEl = document.getElementById('toTrigger');
 
 function log(...args) {
   const line = args.map(v => typeof v === 'string' ? v : JSON.stringify(v, null, 2)).join(' ');
@@ -33,8 +36,28 @@ async function checkHealth() {
   }
 }
 
+// Dispara os fluxos de demonstração no backend
+async function triggerFlow(path) {
+  const to = (toTriggerEl?.value || '').trim();
+  if (!to) {
+    log('[trigger][warn] preencha To');
+    return;
+  }
+  try {
+    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/demo/trigger/${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ to })
+    });
+    const data = await resp.json().catch(() => ({}));
+    log(`[trigger:${path}]`, resp.status, data);
+  } catch (e) {
+    log(`[trigger:${path}][error]`, e.message || e);
+  }
+}
+
 async function sendTemplate() {
-  const to = document.getElementById('to').value.trim();
+  const to = toTemplateEl.value.trim();
   const template = document.getElementById('template').value.trim();
   const lang = document.getElementById('lang').value.trim() || 'pt_BR';
   const varsRaw = document.getElementById('vars').value.trim();
@@ -61,6 +84,8 @@ async function sendTemplate() {
     });
     const data = await resp.json().catch(() => ({}));
     log('[send-template]', resp.status, data);
+    // Sincroniza automaticamente o To do fluxo com o To do template após envio
+    if (toTriggerEl && to) toTriggerEl.value = to;
   } catch (e) {
     log('[send-template][error]', e.message || e);
   }
@@ -131,3 +156,11 @@ if (btnTriggerCMV) btnTriggerCMV.addEventListener('click', () => triggerFlow('cm
 
 // Inicializa
 loadSupabaseCfg();
+// Preenche toTrigger com o mesmo valor do campo de template, se existir
+if (toTemplateEl && toTriggerEl) {
+  toTriggerEl.value = toTemplateEl.value || toTriggerEl.value || '+55';
+  // Mantém sincronizado quando o usuário digitar no campo de template
+  toTemplateEl.addEventListener('input', () => {
+    toTriggerEl.value = toTemplateEl.value;
+  });
+}

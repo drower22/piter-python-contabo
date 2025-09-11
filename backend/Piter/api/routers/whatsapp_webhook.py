@@ -119,6 +119,9 @@ async def receive_update(request: Request):
             msg_type = m.get('type')
             # Normaliza para formato +<cc><number>
             to_number = f"+{wa_from}" if wa_from and not wa_from.startswith('+') else wa_from
+            # Normaliza também para apenas dígitos ao enviar (Cloud API aceita sem '+')
+            import re as _re
+            to_number_digits = _re.sub(r"\D", "", (to_number or ""))
 
             contact_id = _ensure_contact(sb, wa_number=to_number, profile_name=profile_name)
             conversation_id = _ensure_open_conversation(sb, contact_id)
@@ -130,6 +133,19 @@ async def receive_update(request: Request):
                 interactive = m.get('interactive') or {}
                 button_reply = interactive.get('button_reply') or {}
                 btn_id = (button_reply.get('id') or '').strip()
+                if not btn_id:
+                    # Fallbacks defensivos
+                    btn = (m.get('button') or {})  # alguns formatos antigos
+                    btn_id = (btn.get('payload') or btn.get('id') or '').strip()
+                try:
+                    print("[DEBUG][WA] interactive received:", {
+                        'from': wa_from,
+                        'msg_type': msg_type,
+                        'btn_id': btn_id,
+                        'raw_keys': list(m.keys())
+                    })
+                except Exception:
+                    pass
                 if btn_id:
                     # Persist inbound
                     _insert_message(sb, conversation_id, 'in', 'interactive', m, wa_id)
@@ -143,12 +159,12 @@ async def receive_update(request: Request):
                                 'top_pizzas': [{'nome': f'Pizza {i}', 'qtd': 30-i} for i in range(1,11)],
                                 'top_bebidas': [{'nome': f'Bebida {i}', 'qtd': 50-i} for i in range(1,6)],
                             }
-                            flows.send_sales_summary(to_number, summary)
+                            flows.send_sales_summary(to_number_digits, summary)
                             import asyncio as _aio
-                            _aio.create_task(flows.ask_consumption_after_delay(to_number, 10))
+                            _aio.create_task(flows.ask_consumption_after_delay(to_number_digits, 10))
                         elif btn_id == 'view_consumption':
                             items = [{'nome': f'Insumo {i}', 'qtd': 10*i, 'unid': 'un'} for i in range(1,11)]
-                            flows.send_consumption_list(to_number, items)
+                            flows.send_consumption_list(to_number_digits, items)
                         elif btn_id == 'view_low_stock':
                             items = [
                                 {'insumo': 'Mussarela', 'qtd_atual': 3, 'qtd_min': 8, 'unid': 'kg'},
@@ -157,9 +173,9 @@ async def receive_update(request: Request):
                                 {'insumo': 'Farinha', 'qtd_atual': 20, 'qtd_min': 35, 'unid': 'kg'},
                                 {'insumo': 'Refrigerante Lata', 'qtd_atual': 12, 'qtd_min': 24, 'unid': 'un'},
                             ]
-                            flows.send_low_stock_list(to_number, items)
+                            flows.send_low_stock_list(to_number_digits, items)
                         elif btn_id == 'make_purchase_list':
-                            flows.client.send_text(to_number, 'Ok! Vou gerar a lista de compras sugerida e te envio em instantes.')
+                            flows.client.send_text(to_number_digits, 'Ok! Vou gerar a lista de compras sugerida e te envio em instantes.')
                         elif btn_id == 'view_cmv_analysis':
                             data = {
                                 'cmv_esperado': 28.0, 'cmv_atual': 32.5, 'desvio_pct': 4.5,
@@ -169,9 +185,9 @@ async def receive_update(request: Request):
                                     {'insumo': 'Tomate', 'impacto_pct': 0.9},
                                 ]
                             }
-                            flows.send_cmv_analysis(to_number, data)
+                            flows.send_cmv_analysis(to_number_digits, data)
                         elif btn_id == 'view_cmv_actions':
-                            flows.client.send_text(to_number, 'Ações recomendadas: 1) revisar porcionamento de queijos; 2) ajustar preço das bebidas; 3) auditar perdas na abertura.')
+                            flows.client.send_text(to_number_digits, 'Ações recomendadas: 1) revisar porcionamento de queijos; 2) ajustar preço das bebidas; 3) auditar perdas na abertura.')
                     except Exception as _e_btn:
                         print('[ERROR] button handler failed:', repr(_e_btn))
                     # Continua para próxima mensagem
