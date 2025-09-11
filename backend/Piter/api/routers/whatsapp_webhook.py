@@ -192,13 +192,23 @@ async def receive_update(request: Request):
                             flows.client.send_text(to_number_digits, 'Ações recomendadas: 1) revisar porcionamento de queijos; 2) ajustar preço das bebidas; 3) auditar perdas na abertura.')
                     except Exception as _e_btn:
                         print('[ERROR] button handler failed:', repr(_e_btn))
-                    # Continua para próxima mensagem
-                    continue
+                    # Não usar continue aqui - permite que o fluxo continue para handle_message()
+                    # continue  # Removido para permitir continuidade do fluxo
 
-            # Apenas texto tratado inicialmente
+            # Processa tanto texto quanto botões para manter continuidade do fluxo
             inbound = {"type": msg_type}
             if msg_type == 'text':
                 inbound['text'] = m.get('text')
+            elif msg_type in ('interactive', 'button'):
+                # Para botões, inclui informação do botão clicado
+                interactive = m.get('interactive') or {}
+                button_reply = interactive.get('button_reply') or {}
+                btn_id = (button_reply.get('id') or '').strip()
+                if not btn_id:
+                    btn = (m.get('button') or {})
+                    btn_id = (btn.get('payload') or btn.get('id') or '').strip()
+                inbound['button_id'] = btn_id
+                inbound['button_title'] = button_reply.get('title') or (m.get('button') or {}).get('text') or ''
 
             conv = {"id": conversation_id, "contact_id": contact_id}
             result = handle_message(conv, inbound)
