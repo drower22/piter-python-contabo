@@ -81,7 +81,17 @@
           </div>
         </section>
 
-        
+        <section class="card span-6">
+          <h2>Fluxos de Demo</h2>
+          <p class="muted">Dispare fluxos sem template (conversa aberta).</p>
+          <label>To (ex: +5511999999999)</label>
+          <input id="toTrigger" value="+55" inputmode="tel" pattern="^\+\d{8,15}$" title="Use formato +DDI... apenas números" />
+          <div class="actions" style="margin-top:8px; flex-wrap: wrap;">
+            <button class="btn" id="btnTriggerImport">Fluxo 1 • Importação concluída</button>
+            <button class="btn" id="btnTriggerLowStock">Fluxo 2 • Estoque baixo</button>
+            <button class="btn" id="btnTriggerCMV">Fluxo 3 • Desvio de CMV</button>
+          </div>
+        </section>
 
         <section class="card" style="grid-column: span 12">
           <h2>Log</h2>

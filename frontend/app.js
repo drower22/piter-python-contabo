@@ -5,6 +5,10 @@ const healthBtn = document.getElementById('btnHealth');
 const healthResult = document.getElementById('healthResult');
 const sendBtn = document.getElementById('btnSendTemplate');
 const clearBtn = document.getElementById('btnClearLog');
+// Demo flow buttons
+const btnTriggerImport = document.getElementById('btnTriggerImport');
+const btnTriggerLowStock = document.getElementById('btnTriggerLowStock');
+const btnTriggerCMV = document.getElementById('btnTriggerCMV');
 
 const label = document.getElementById('apiBaseLabel');
 if (label) label.textContent = API_BASE;
@@ -121,6 +125,9 @@ if (sendBtn) sendBtn.addEventListener('click', sendTemplate);
 if (clearBtn) clearBtn.addEventListener('click', () => (logEl.textContent = ''));
 if (btnSaveSupabase) btnSaveSupabase.addEventListener('click', saveSupabaseCfg);
 if (btnLoadUsers) btnLoadUsers.addEventListener('click', fetchUsers);
+if (btnTriggerImport) btnTriggerImport.addEventListener('click', () => triggerFlow('importacao'));
+if (btnTriggerLowStock) btnTriggerLowStock.addEventListener('click', () => triggerFlow('estoque_baixo'));
+if (btnTriggerCMV) btnTriggerCMV.addEventListener('click', () => triggerFlow('cmv'));
 
 // Inicializa
 loadSupabaseCfg();
