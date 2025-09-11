@@ -193,6 +193,11 @@ async def send_template(
 
         # Resolve recipient - aceita qualquer um dos campos
         to_number = await resolve_recipient(data)
+        # Normaliza para apenas dígitos (WhatsApp Cloud aceita sem '+')
+        import re as _re
+        to_number_normalized = _re.sub(r"\D", "", (to_number or "").strip())
+        if not to_number_normalized:
+            return JSONResponse(status_code=422, content={"error": "invalid recipient"})
         
         # Tenta obter user_name a partir dos identificadores fornecidos
         user_name_val: str | None = None
@@ -238,22 +243,28 @@ async def send_template(
                 }]
 
         payload = {
-            "to": to_number,
+            "to": to_number_normalized,
             "template": data.template_name,
             "language": data.lang_code,
             "components": components
         }
         print(f"[DEBUG] WhatsAppClient.send_template PAYLOAD: {payload}")
 
-        response = client.send_template(
-            to=payload["to"],
-            template=payload["template"],
-            language=payload["language"],
-            components=payload["components"]
-        )
+        try:
+            response = client.send_template(
+                to=payload["to"],
+                template=payload["template"],
+                language=payload["language"],
+                components=payload["components"]
+            )
+        except Exception as _e:
+            import traceback as _tb
+            print("[ERROR] Upstream Meta error:", repr(_e))
+            print(_tb.format_exc())
+            return JSONResponse(status_code=502, content={"error": "meta_api_error", "details": str(_e)})
         
         print(f"[DEBUG] WhatsApp API response: {response}")
-        return JSONResponse(status_code=200, content={"ok": True, "to": to_number, "response": response})
+        return JSONResponse(status_code=200, content={"ok": True, "to": to_number_normalized, "response": response})
         
     except Exception as e:
         import traceback
