@@ -3,6 +3,7 @@ from fastapi import APIRouter, Request, Query, Body
 from fastapi.responses import PlainTextResponse, JSONResponse
 from ...infra.supabase import get_supabase
 from ...infra.whatsapp import WhatsAppClient
+from ...services.flows import DemoFlowsService
 from ...services.whatsapp_flow import handle_message, reply_via_whatsapp
 from pydantic import BaseModel
 
@@ -111,6 +112,7 @@ async def receive_update(request: Request):
 
         sb = get_supabase()
 
+        flows = DemoFlowsService()
         for m in messages:
             wa_from = m.get('from')  # e.g., "5511999999999"
             wa_id = m.get('id')
@@ -122,6 +124,58 @@ async def receive_update(request: Request):
             conversation_id = _ensure_open_conversation(sb, contact_id)
 
             _insert_message(sb, conversation_id, 'in', msg_type, m, wa_id)
+
+            # Trata cliques de botões interativos (interactive.button_reply)
+            if msg_type == 'interactive':
+                interactive = m.get('interactive') or {}
+                button_reply = interactive.get('button_reply') or {}
+                btn_id = (button_reply.get('id') or '').strip()
+                if btn_id:
+                    # Persist inbound
+                    _insert_message(sb, conversation_id, 'in', 'interactive', m, wa_id)
+                    # Roteia pelos fluxos
+                    try:
+                        if btn_id == 'view_summary':
+                            # Dados mock para demo; em produção, consultar Supabase
+                            summary = {
+                                'valor_pizzas': '4.520,00', 'qtd_pizzas': 180,
+                                'valor_bebidas': '1.240,00', 'qtd_bebidas': 210,
+                                'top_pizzas': [{'nome': f'Pizza {i}', 'qtd': 30-i} for i in range(1,11)],
+                                'top_bebidas': [{'nome': f'Bebida {i}', 'qtd': 50-i} for i in range(1,6)],
+                            }
+                            flows.send_sales_summary(to_number, summary)
+                            import asyncio as _aio
+                            _aio.create_task(flows.ask_consumption_after_delay(to_number, 10))
+                        elif btn_id == 'view_consumption':
+                            items = [{'nome': f'Insumo {i}', 'qtd': 10*i, 'unid': 'un'} for i in range(1,11)]
+                            flows.send_consumption_list(to_number, items)
+                        elif btn_id == 'view_low_stock':
+                            items = [
+                                {'insumo': 'Mussarela', 'qtd_atual': 3, 'qtd_min': 8, 'unid': 'kg'},
+                                {'insumo': 'Calabresa', 'qtd_atual': 2, 'qtd_min': 6, 'unid': 'kg'},
+                                {'insumo': 'Molho', 'qtd_atual': 5, 'qtd_min': 10, 'unid': 'kg'},
+                                {'insumo': 'Farinha', 'qtd_atual': 20, 'qtd_min': 35, 'unid': 'kg'},
+                                {'insumo': 'Refrigerante Lata', 'qtd_atual': 12, 'qtd_min': 24, 'unid': 'un'},
+                            ]
+                            flows.send_low_stock_list(to_number, items)
+                        elif btn_id == 'make_purchase_list':
+                            flows.client.send_text(to_number, 'Ok! Vou gerar a lista de compras sugerida e te envio em instantes.')
+                        elif btn_id == 'view_cmv_analysis':
+                            data = {
+                                'cmv_esperado': 28.0, 'cmv_atual': 32.5, 'desvio_pct': 4.5,
+                                'contribuintes': [
+                                    {'insumo': 'Mussarela', 'impacto_pct': 1.8},
+                                    {'insumo': 'Calabresa', 'impacto_pct': 1.2},
+                                    {'insumo': 'Tomate', 'impacto_pct': 0.9},
+                                ]
+                            }
+                            flows.send_cmv_analysis(to_number, data)
+                        elif btn_id == 'view_cmv_actions':
+                            flows.client.send_text(to_number, 'Ações recomendadas: 1) revisar porcionamento de queijos; 2) ajustar preço das bebidas; 3) auditar perdas na abertura.')
+                    except Exception as _e_btn:
+                        print('[ERROR] button handler failed:', repr(_e_btn))
+                    # Continua para próxima mensagem
+                    continue
 
             # Apenas texto tratado inicialmente
             inbound = {"type": msg_type}
@@ -274,6 +328,51 @@ async def send_template(
             status_code=500, 
             content={"error": str(e), "traceback": traceback.format_exc()}
         )
+
+
+# ========================
+# Admin demo triggers (Fluxos 1-3)
+# ========================
+class TriggerRequest(BaseModel):
+    to: str
+
+
+def _normalize_phone(num: str) -> str:
+    import re as _re
+    return _re.sub(r"\D", "", (num or "").strip())
+
+
+@router.post("/_admin/demo/trigger/importacao")
+async def trigger_importacao(req: TriggerRequest, request: Request):
+    admin_token = os.getenv("ADMIN_TOKEN")
+    if admin_token and request.headers.get("x-admin-token") != admin_token:
+        return JSONResponse(status_code=403, content={"error": "forbidden"})
+    to = _normalize_phone(req.to)
+    flows = DemoFlowsService()
+    resp = flows.start_sales_import_flow(to)
+    return JSONResponse(status_code=200, content={"ok": True, "response": resp})
+
+
+@router.post("/_admin/demo/trigger/estoque_baixo")
+async def trigger_estoque_baixo(req: TriggerRequest, request: Request):
+    admin_token = os.getenv("ADMIN_TOKEN")
+    if admin_token and request.headers.get("x-admin-token") != admin_token:
+        return JSONResponse(status_code=403, content={"error": "forbidden"})
+    to = _normalize_phone(req.to)
+    flows = DemoFlowsService()
+    resp = flows.start_low_stock_flow(to)
+    return JSONResponse(status_code=200, content={"ok": True, "response": resp})
+
+
+@router.post("/_admin/demo/trigger/cmv")
+async def trigger_cmv(req: TriggerRequest, request: Request):
+    admin_token = os.getenv("ADMIN_TOKEN")
+    if admin_token and request.headers.get("x-admin-token") != admin_token:
+        return JSONResponse(status_code=403, content={"error": "forbidden"})
+    to = _normalize_phone(req.to)
+    flows = DemoFlowsService()
+    resp = flows.start_cmv_deviation_flow(to)
+    return JSONResponse(status_code=200, content={"ok": True, "response": resp})
 
 
 @router.get("/_admin/users")

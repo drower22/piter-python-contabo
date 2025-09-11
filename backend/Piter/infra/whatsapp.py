@@ -101,3 +101,34 @@ class WhatsAppClient:
         resp = requests.post(url, headers=self.headers, json=payload, timeout=60)
         resp.raise_for_status()
         return resp.json()
+
+    def send_buttons(self, to: str, body_text: str, buttons: list[dict]) -> Dict[str, Any]:
+        """Envia uma mensagem interativa com botões de resposta.
+
+        buttons: lista de dicts no formato {"id": "string", "title": "Texto"} (máx. 3)
+        """
+        btns = []
+        for b in (buttons or [])[:3]:
+            btns.append({
+                "type": "reply",
+                "reply": {"id": str(b.get("id", "btn")), "title": str(b.get("title", "OK"))}
+            })
+        payload: Dict[str, Any] = {
+            "messaging_product": "whatsapp",
+            "to": to,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": body_text},
+                "action": {"buttons": btns}
+            }
+        }
+        url = f"{self.base_url}/messages"
+        print(f"[DEBUG] POST {url} payload={payload}")
+        resp = requests.post(url, headers=self.headers, json=payload, timeout=30)
+        print(f"[DEBUG] RESP status={resp.status_code} text={resp.text}")
+        resp.raise_for_status()
+        try:
+            return resp.json()
+        except Exception:
+            return {"_non_json_body": resp.text}
