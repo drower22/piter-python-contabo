@@ -140,30 +140,27 @@ async def receive_update(request: Request):
             if msg_type in ('interactive', 'button'):
                 interactive = m.get('interactive') or {}
                 button_reply = interactive.get('button_reply') or {}
+                print("[DEBUG][WA] raw interactive payload:", interactive)  # Log completo
                 btn_id = (button_reply.get('id') or '').strip()
                 if not btn_id:
                     # Formato 'button' legado: { type: 'button', button: { text, payload } }
                     btn = (m.get('button') or {})
                     btn_id = (btn.get('payload') or btn.get('id') or '').strip()
-                try:
-                    print("[DEBUG][WA] interactive received:", {
-                        'from': wa_from,
-                        'msg_type': msg_type,
-                        'btn_id': btn_id,
-                        'raw_keys': list(m.keys())
-                    })
-                except Exception:
-                    pass
+                print("[DEBUG][WA] extracted btn_id:", btn_id)  # Log do ID extraído
+
                 if btn_id:
+                    print("[DEBUG][WA] handling button click for:", btn_id)  # Confirma que entrou no handler
                     try:
                         print('[DEBUG][WA] routing button id:', btn_id)
                         # Persist inbound
                         try:
                             _insert_message(sb, conversation_id, 'in', 'interactive', m, wa_id)
+                            print("[DEBUG][WA] button click persisted successfully")
                         except Exception as _e_persist:
                             print('[WARN] failed to persist button click:', repr(_e_persist))
                         # Roteia pelos fluxos
                         if btn_id == 'view_summary':
+                            print("[DEBUG][WA] executing view_summary flow")
                             # Dados mock para demo; em produção, consultar Supabase
                             summary = {
                                 'valor_pizzas': '4.520,00', 'qtd_pizzas': 180,
