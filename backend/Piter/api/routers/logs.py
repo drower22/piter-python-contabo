@@ -86,11 +86,11 @@ async def _journalctl_stream(service_name: str):
 async def _inprocess_stream():
     """Yield messages from the in-process async logging queue as SSE messages."""
     q = _ensure_log_queue()
-    # Emit a header message so clients know the stream está ativo
-    yield "data: Streaming de logs internos iniciado.\n\n"
+    # Emit a header message immediately (helps CDNs like Cloudflare keep the connection open)
+    yield "data: [startup] Streaming de logs internos iniciado.\n\n"
     while True:
         try:
-            msg = await asyncio.wait_for(q.get(), timeout=5.0)
+            msg = await asyncio.wait_for(q.get(), timeout=2.5)
             yield f"data: {msg}\n\n"
         except asyncio.TimeoutError:
             # Heartbeat para manter conexão viva
@@ -115,4 +115,24 @@ async def stream_logs(request: Request, source: Optional[str] = None):
             async for line in _inprocess_stream():
                 yield line
 
-    return StreamingResponse(log_generator(), media_type="text/event-stream")
+    headers = {
+        # Prevent buffering at reverse proxies
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+        # For some reverse proxies like nginx
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(log_generator(), media_type="text/event-stream", headers=headers)
+
+
+@router.post("/_admin/logs/ping")
+async def logs_ping():
+    """Gera uma linha de log imediatamente para validar o stream in-process."""
+    q = _ensure_log_queue()
+    logging.getLogger("piter.logs").info("[ping] teste de log pelo endpoint /_admin/logs/ping")
+    # Também tenta empurrar uma linha direta, caso o handler ainda não esteja ligado
+    try:
+        q.put_nowait("[ping] linha enviada diretamente para a fila de logs")
+    except Exception:
+        pass
+    return {"ok": True}
