@@ -97,6 +97,10 @@ def _insert_message(sb, conversation_id: str, direction: str, msg_type: str, bod
 @router.post("")
 async def receive_update(request: Request):
     body = await request.json()
+    try:
+        print("[DEBUG][WA] inbound body:", body)
+    except Exception:
+        pass
     # Estrutura esperada: entry -> changes -> value -> messages
     try:
         entry = _get_first(body.get('entry')) or {}
@@ -128,14 +132,14 @@ async def receive_update(request: Request):
 
             _insert_message(sb, conversation_id, 'in', msg_type, m, wa_id)
 
-            # Trata cliques de botões interativos (interactive.button_reply)
-            if msg_type == 'interactive':
+            # Trata cliques de botões (novo e legado): interactive.button_reply OU button.payload
+            if msg_type in ('interactive', 'button'):
                 interactive = m.get('interactive') or {}
                 button_reply = interactive.get('button_reply') or {}
                 btn_id = (button_reply.get('id') or '').strip()
                 if not btn_id:
-                    # Fallbacks defensivos
-                    btn = (m.get('button') or {})  # alguns formatos antigos
+                    # Formato 'button' legado: { type: 'button', button: { text, payload } }
+                    btn = (m.get('button') or {})
                     btn_id = (btn.get('payload') or btn.get('id') or '').strip()
                 try:
                     print("[DEBUG][WA] interactive received:", {
