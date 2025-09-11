@@ -16,10 +16,28 @@ if (label) label.textContent = API_BASE;
 const toTemplateEl = document.getElementById('to');
 const toTriggerEl = document.getElementById('toTrigger');
 
+// Novo botão de copiar
+const copyBtn = document.getElementById('copyLog');
+if (copyBtn) {
+  copyBtn.addEventListener('click', () => {
+    navigator.clipboard.writeText(logEl.textContent)
+      .then(() => {
+        copyBtn.textContent = 'Copiado!';
+        setTimeout(() => copyBtn.textContent = 'Copiar Log', 2000);
+      })
+      .catch(err => console.error('Failed to copy:', err));
+  });
+}
+
 function log(...args) {
   const line = args.map(v => typeof v === 'string' ? v : JSON.stringify(v, null, 2)).join(' ');
   logEl.textContent += `\n${line}`;
   logEl.scrollTop = logEl.scrollHeight;
+  
+  // Limita o tamanho do log para evitar consumo excessivo de memória
+  if (logEl.textContent.length > 10000) {
+    logEl.textContent = logEl.textContent.slice(-8000);
+  }
 }
 
 async function checkHealth() {
@@ -143,6 +161,25 @@ async function fetchUsers() {
     log('[supabase][error]', e.message || e);
   }
 }
+
+// Novo: Conexão SSE para logs do servidor
+function connectLogStream() {
+  const logStream = new EventSource(`${API_BASE}/_admin/logs/stream`);
+  
+  logStream.addEventListener('message', (e) => {
+    log('[SERVER]', e.data);
+  });
+
+  logStream.addEventListener('error', (e) => {
+    console.error('Log stream error:', e);
+    setTimeout(connectLogStream, 5000); // Reconecta após 5 segundos
+  });
+}
+
+// Inicia quando o DOM estiver pronto
+document.addEventListener('DOMContentLoaded', () => {
+  connectLogStream();
+});
 
 // Eventos
 if (healthBtn) healthBtn.addEventListener('click', checkHealth);

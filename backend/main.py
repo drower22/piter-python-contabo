@@ -21,11 +21,13 @@ try:
     from backend.Piter.api.routers import health as health_router
     from backend.Piter.api.routers import forms as forms_router
     from backend.Piter.api.routers import whatsapp_webhook as wa_webhook_router
+    from backend.Piter.api.routers import logs as logs_router
 except ModuleNotFoundError:
     # Fallback quando o pacote raiz 'backend' não está no PYTHONPATH
     from Piter.api.routers import health as health_router
     from Piter.api.routers import forms as forms_router
     from Piter.api.routers import whatsapp_webhook as wa_webhook_router
+    from Piter.api.routers import logs as logs_router
 
 # Importa router do SQL Agent (pode não existir em alguns ambientes)
 _SQLAGENT_IMPORT_ERR = None
@@ -90,6 +92,7 @@ app.add_middleware(
 app.include_router(health_router.router)
 app.include_router(forms_router.router)
 app.include_router(wa_webhook_router.router)
+app.include_router(logs_router.router)
 if sqlagent_router:
     app.include_router(sqlagent_router)
     print("[DEBUG] Router do SQLAgent montado: rotas /qa e /v1/sql habilitadas.")
