@@ -400,6 +400,75 @@ async def trigger_cmv(req: TriggerRequest, request: Request):
     return JSONResponse(status_code=200, content={"ok": True, "response": resp})
 
 
+# ========================
+# Admin debug: simular clique de botão
+# ========================
+class SimulateClickRequest(BaseModel):
+    to: str
+    btn_id: str
+
+
+@router.post("/_admin/debug/simulate-click")
+async def simulate_click(req: SimulateClickRequest, request: Request):
+    admin_token = os.getenv("ADMIN_TOKEN")
+    if admin_token and request.headers.get("x-admin-token") != admin_token:
+        return JSONResponse(status_code=403, content={"error": "forbidden"})
+
+    to = _normalize_phone(req.to)
+    btn_id = (req.btn_id or '').strip()
+    print("[DEBUG][WA][SIM] simulate-click:", {"to": to, "btn_id": btn_id})
+    flows = DemoFlowsService()
+    try:
+        if btn_id == 'view_summary':
+            summary = {
+                'valor_pizzas': '4.520,00', 'qtd_pizzas': 180,
+                'valor_bebidas': '1.240,00', 'qtd_bebidas': 210,
+                'top_pizzas': [{'nome': f'Pizza {i}', 'qtd': 30-i} for i in range(1,11)],
+                'top_bebidas': [{'nome': f'Bebida {i}', 'qtd': 50-i} for i in range(1,6)],
+            }
+            resp = flows.send_sales_summary(to, summary)
+            import asyncio as _aio
+            _aio.create_task(flows.ask_consumption_after_delay(to, 10))
+            return JSONResponse(status_code=200, content={"ok": True, "routed": btn_id, "resp": resp})
+        elif btn_id == 'view_consumption':
+            items = [{'nome': f'Insumo {i}', 'qtd': 10*i, 'unid': 'un'} for i in range(1,11)]
+            resp = flows.send_consumption_list(to, items)
+            return JSONResponse(status_code=200, content={"ok": True, "routed": btn_id, "resp": resp})
+        elif btn_id == 'view_low_stock':
+            items = [
+                {'insumo': 'Mussarela', 'qtd_atual': 3, 'qtd_min': 8, 'unid': 'kg'},
+                {'insumo': 'Calabresa', 'qtd_atual': 2, 'qtd_min': 6, 'unid': 'kg'},
+                {'insumo': 'Molho', 'qtd_atual': 5, 'qtd_min': 10, 'unid': 'kg'},
+                {'insumo': 'Farinha', 'qtd_atual': 20, 'qtd_min': 35, 'unid': 'kg'},
+                {'insumo': 'Refrigerante Lata', 'qtd_atual': 12, 'qtd_min': 24, 'unid': 'un'},
+            ]
+            resp = flows.send_low_stock_list(to, items)
+            return JSONResponse(status_code=200, content={"ok": True, "routed": btn_id, "resp": resp})
+        elif btn_id == 'make_purchase_list':
+            resp = flows.client.send_text(to, 'Ok! Vou gerar a lista de compras sugerida e te envio em instantes.')
+            return JSONResponse(status_code=200, content={"ok": True, "routed": btn_id, "resp": resp})
+        elif btn_id == 'view_cmv_analysis':
+            data = {
+                'cmv_esperado': 28.0, 'cmv_atual': 32.5, 'desvio_pct': 4.5,
+                'contribuintes': [
+                    {'insumo': 'Mussarela', 'impacto_pct': 1.8},
+                    {'insumo': 'Calabresa', 'impacto_pct': 1.2},
+                    {'insumo': 'Tomate', 'impacto_pct': 0.9},
+                ]
+            }
+            resp = flows.send_cmv_analysis(to, data)
+            return JSONResponse(status_code=200, content={"ok": True, "routed": btn_id, "resp": resp})
+        elif btn_id == 'view_cmv_actions':
+            resp = flows.client.send_text(to, 'Ações recomendadas: 1) revisar porcionamento de queijos; 2) ajustar preço das bebidas; 3) auditar perdas na abertura.')
+            return JSONResponse(status_code=200, content={"ok": True, "routed": btn_id, "resp": resp})
+        else:
+            return JSONResponse(status_code=400, content={"ok": False, "error": "btn_id desconhecido", "btn_id": btn_id})
+    except Exception as _e_sim:
+        import traceback as _tb
+        print('[ERROR][WA][SIM] simulate-click failed:', repr(_e_sim))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(_e_sim), "traceback": _tb.format_exc()})
+
+
 @router.get("/_admin/users")
 async def list_users(request: Request):
     try:
