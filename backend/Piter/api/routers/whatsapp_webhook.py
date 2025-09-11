@@ -137,108 +137,101 @@ async def receive_update(request: Request):
                 print('[WARN] failed to persist inbound message:', repr(_e_persist))
 
             # Trata cliques de botões (novo e legado): interactive.button_reply, interactive.list_reply OU button.payload
-            if msg_type in ('interactive', 'button'):
+            handled = False
+            btn_id = None
+            btn_title = ''
+            if msg_type == 'interactive':
                 interactive = m.get('interactive') or {}
-                button_reply = interactive.get('button_reply') or {}
-                list_reply = interactive.get('list_reply') or {}
-                print("[DEBUG][WA] raw interactive payload:", interactive)  # Log completo
-                raw_btn = (button_reply.get('id') or list_reply.get('id') or '').strip()
-                if not btn_id:
-                    # Formato 'button' legado: { type: 'button', button: { text, payload } }
-                    btn = (m.get('button') or {})
-                    raw_btn = (btn.get('payload') or btn.get('id') or '').strip()
+                print("[DEBUG][WA] raw interactive payload:", interactive)
+                reply = (interactive.get('button_reply') or interactive.get('list_reply') or {})
+                raw_btn = (reply.get('id') or '').strip()
+                btn_title = (reply.get('title') or '').strip()
+            elif msg_type == 'button':  # legado
+                btn = (m.get('button') or {})
+                raw_btn = (btn.get('payload') or btn.get('id') or '').strip()
+                btn_title = (btn.get('text') or '').strip()
+            else:
+                raw_btn = ''
 
-                # Normaliza/compatibiliza payloads diversos
-                btn_id = raw_btn
-                # Se vier como JSON, tenta extrair 'id' ou 'action'
-                if btn_id and (btn_id.startswith('{') or btn_id.startswith('[')):
-                    try:
-                        import json as _json
-                        _obj = _json.loads(btn_id)
-                        if isinstance(_obj, dict):
-                            btn_id = _obj.get('id') or _obj.get('action') or btn_id
-                    except Exception:
-                        pass
-                # Lowercase, trim e torna prefix-safe (ex.: 'view_summary:1')
-                btn_id = (str(btn_id).strip().lower())
-                if ':' in btn_id:
-                    btn_id = btn_id.split(':', 1)[0]
-                print("[DEBUG][WA] extracted btn_id:", btn_id, "(raw=", raw_btn, ")")  # Log do ID extraído
+            # Normaliza id (suporta JSON, prefixos e variações)
+            btn_id = raw_btn
+            if btn_id and (btn_id.startswith('{') or btn_id.startswith('[')):
+                try:
+                    import json as _json
+                    _obj = _json.loads(btn_id)
+                    if isinstance(_obj, dict):
+                        btn_id = _obj.get('id') or _obj.get('action') or btn_id
+                except Exception:
+                    pass
+            btn_id = (str(btn_id or '').strip().lower())
+            if ':' in btn_id:
+                btn_id = btn_id.split(':', 1)[0]
+            print("[DEBUG][WA] extracted btn_id:", btn_id, "(raw=", raw_btn, ")")
 
-                if btn_id:
-                    print(f"[DEBUG][WA] handling button click for: {btn_id} -> to:{to_number_digits}")
-                    try:
-                        # Roteia pelos fluxos
-                        if btn_id == 'view_summary':
-                            summary = {
-                                'valor_pizzas': '4.520,00', 'qtd_pizzas': 180,
-                                'valor_bebidas': '1.240,00', 'qtd_bebidas': 210,
-                                'top_pizzas': [{'nome': f'Pizza {i}', 'qtd': 30-i} for i in range(1,11)],
-                                'top_bebidas': [{'nome': f'Bebida {i}', 'qtd': 50-i} for i in range(1,6)],
-                            }
-                            flows.send_sales_summary(to_number_digits, summary)
-                            import asyncio as _aio
-                            _aio.create_task(flows.ask_consumption_after_delay(to_number_digits, 10))
-
-                        elif btn_id == 'view_consumption':
-                            items = [{'nome': f'Insumo {i}', 'qtd': 10*i, 'unid': 'un'} for i in range(1,11)]
-                            flows.send_consumption_list(to_number_digits, items)
-
-                        elif btn_id == 'view_low_stock':
-                            items = [
-                                {'insumo': 'Mussarela', 'qtd_atual': 3, 'qtd_min': 8, 'unid': 'kg'},
-                                {'insumo': 'Calabresa', 'qtd_atual': 2, 'qtd_min': 6, 'unid': 'kg'},
-                                {'insumo': 'Molho', 'qtd_atual': 5, 'qtd_min': 10, 'unid': 'kg'},
-                                {'insumo': 'Farinha', 'qtd_atual': 20, 'qtd_min': 35, 'unid': 'kg'},
-                                {'insumo': 'Refrigerante Lata', 'qtd_atual': 12, 'qtd_min': 24, 'unid': 'un'},
+            if btn_id:
+                print(f"[DEBUG][WA] handling button click for: {btn_id} -> to:{to_number_digits}")
+                try:
+                    # Roteamento dos fluxos de demo
+                    if btn_id == 'view_summary':
+                        summary = {
+                            'valor_pizzas': '4.520,00', 'qtd_pizzas': 180,
+                            'valor_bebidas': '1.240,00', 'qtd_bebidas': 210,
+                            'top_pizzas': [{'nome': f'Pizza {i}', 'qtd': 30-i} for i in range(1,11)],
+                            'top_bebidas': [{'nome': f'Bebida {i}', 'qtd': 50-i} for i in range(1,6)],
+                        }
+                        flows.send_sales_summary(to_number_digits, summary)
+                        import asyncio as _aio
+                        _aio.create_task(flows.ask_consumption_after_delay(to_number_digits, 10))
+                        handled = True
+                    elif btn_id == 'view_consumption':
+                        items = [{'nome': f'Insumo {i}', 'qtd': 10*i, 'unid': 'un'} for i in range(1,11)]
+                        flows.send_consumption_list(to_number_digits, items)
+                        handled = True
+                    elif btn_id == 'view_low_stock':
+                        items = [
+                            {'insumo': 'Mussarela', 'qtd_atual': 3, 'qtd_min': 8, 'unid': 'kg'},
+                            {'insumo': 'Calabresa', 'qtd_atual': 2, 'qtd_min': 6, 'unid': 'kg'},
+                            {'insumo': 'Molho', 'qtd_atual': 5, 'qtd_min': 10, 'unid': 'kg'},
+                            {'insumo': 'Farinha', 'qtd_atual': 20, 'qtd_min': 35, 'unid': 'kg'},
+                            {'insumo': 'Refrigerante Lata', 'qtd_atual': 12, 'qtd_min': 24, 'unid': 'un'},
+                        ]
+                        flows.send_low_stock_list(to_number_digits, items)
+                        handled = True
+                    elif btn_id == 'make_purchase_list':
+                        flows.client.send_text(to_number_digits, 'Ok! Vou gerar a lista de compras sugerida e te envio em instantes.')
+                        handled = True
+                    elif btn_id == 'view_cmv_analysis':
+                        data = {
+                            'cmv_esperado': 28.0, 'cmv_atual': 32.5, 'desvio_pct': 4.5,
+                            'contribuintes': [
+                                {'insumo': 'Mussarela', 'impacto_pct': 1.8},
+                                {'insumo': 'Calabresa', 'impacto_pct': 1.2},
+                                {'insumo': 'Tomate', 'impacto_pct': 0.9},
                             ]
-                            flows.send_low_stock_list(to_number_digits, items)
-                        elif btn_id == 'make_purchase_list':
-                            flows.client.send_text(to_number_digits, 'Ok! Vou gerar a lista de compras sugerida e te envio em instantes.')
-                        elif btn_id == 'view_cmv_analysis':
-                            data = {
-                                'cmv_esperado': 28.0, 'cmv_atual': 32.5, 'desvio_pct': 4.5,
-                                'contribuintes': [
-                                    {'insumo': 'Mussarela', 'impacto_pct': 1.8},
-                                    {'insumo': 'Calabresa', 'impacto_pct': 1.2},
-                                    {'insumo': 'Tomate', 'impacto_pct': 0.9},
-                                ]
-                            }
-                            flows.send_cmv_analysis(to_number_digits, data)
-                        elif btn_id == 'view_cmv_actions':
-                            flows.client.send_text(to_number_digits, 'Ações recomendadas: 1) revisar porcionamento de queijos; 2) ajustar preço das bebidas; 3) auditar perdas na abertura.')
-                        else:
-                            # Fallback: confirma recebimento para qualquer outro botão
-                            flows.client.send_text(to_number_digits, f"Recebi sua seleção: {btn_id}")
-                    except Exception as _e_btn:
-                        print('[ERROR] button handler failed:', repr(_e_btn))
-                    # Não usar continue aqui - permite que o fluxo continue para handle_message()
-                    # continue  # Removido para permitir continuidade do fluxo
+                        }
+                        flows.send_cmv_analysis(to_number_digits, data)
+                        handled = True
+                    elif btn_id == 'view_cmv_actions':
+                        flows.client.send_text(to_number_digits, 'Ações recomendadas: 1) revisar porcionamento de queijos; 2) ajustar preço das bebidas; 3) auditar perdas na abertura.')
+                        handled = True
+                except Exception as _e_btn:
+                    print('[ERROR] button handler failed:', repr(_e_btn))
 
-            # Processa tanto texto quanto botões para manter continuidade do fluxo
+            # Monta inbound normalizado (reutiliza extração feita acima)
             inbound = {"type": msg_type}
             if msg_type == 'text':
                 inbound['text'] = m.get('text')
             elif msg_type in ('interactive', 'button'):
-                # Para botões, inclui informação do botão clicado
-                interactive = m.get('interactive') or {}
-                button_reply = interactive.get('button_reply') or {}
-                list_reply = interactive.get('list_reply') or {}
-                btn_id = (button_reply.get('id') or list_reply.get('id') or '').strip()
-                if not btn_id:
-                    btn = (m.get('button') or {})
-                    btn_id = (btn.get('payload') or btn.get('id') or '').strip()
-                inbound['button_id'] = btn_id
-                inbound['button_title'] = (
-                    button_reply.get('title') or list_reply.get('title') or (m.get('button') or {}).get('text') or ''
-                )
+                inbound['button_id'] = btn_id or ''
+                inbound['button_title'] = btn_title or ''
 
             conv = {"id": conversation_id, "contact_id": contact_id}
-            result = handle_message(conv, inbound)
-            if result.reply_text and to_number:
-                reply_via_whatsapp(to_number, result)
-                # Persist outbound
-                _insert_message(sb, conversation_id, 'out', 'text', {"text": {"body": result.reply_text}}, None)
+            if not (msg_type in ('interactive', 'button') and handled):
+                result = handle_message(conv, inbound)
+                if result.reply_text and to_number:
+                    reply_via_whatsapp(to_number, result)
+                    # Persist outbound
+                    _insert_message(sb, conversation_id, 'out', 'text', {"text": {"body": result.reply_text}}, None)
 
         return JSONResponse(status_code=200, content={"received": True})
     except Exception as e:

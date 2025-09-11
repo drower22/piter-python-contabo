@@ -51,7 +51,7 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _BACKEND_ENV = os.path.join(_THIS_DIR, ".env")
 load_dotenv(dotenv_path=_BACKEND_ENV, override=False)
 
-# Configuração do Supabase
+# Configuração do Supabase (não-fatal para permitir /health mesmo sem env)
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
@@ -61,15 +61,16 @@ if SUPABASE_KEY:
 else:
     print(f"[DEBUG] SUPABASE_KEY: [NÃO DEFINIDO]")
 
-# Validação inicial das variáveis de ambiente
-if not SUPABASE_URL or not SUPABASE_KEY:
-    print("[ERRO] SUPABASE_URL e SUPABASE_KEY são obrigatórios no ambiente.")
-    raise ValueError("SUPABASE_URL e SUPABASE_KEY são obrigatórios no ambiente.")
+_SUPABASE_READY = bool(SUPABASE_URL and SUPABASE_KEY)
+if not _SUPABASE_READY:
+    print("[WARN] SUPABASE_URL/SUPABASE_KEY ausentes. Endpoints que dependem de Supabase podem falhar; /health continuará funcionando.")
 else:
-    print("[DEBUG] Variáveis de ambiente carregadas com sucesso.")
-
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-print("[DEBUG] Cliente Supabase inicializado.")
+    try:
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)  # type: ignore[name-defined]
+        print("[DEBUG] Cliente Supabase inicializado.")
+    except Exception as _sup_e:
+        print("[WARN] Falha ao inicializar cliente Supabase no boot:", repr(_sup_e))
+        _SUPABASE_READY = False
 
 # Cria a aplicação FastAPI
 app = FastAPI(
