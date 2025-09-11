@@ -173,8 +173,11 @@ from pydantic import BaseModel
 import tempfile
 import os
 
-# Importa a lógica de processamento do script
-# Este endpoint é EXCLUSIVO para o processamento do relatório financeiro do iFood.
+"""
+Importação OPCIONAL de módulos de scripts legados.
+Em muitos ambientes do Piter, esses módulos não existem e os endpoints correspondentes estão desativados.
+Portanto, a ausência desses módulos não deve derrubar a API.
+"""
 try:
     from backend.scripts.process_report import (
         processar_relatorio_financeiro,
@@ -185,16 +188,36 @@ try:
         process_conciliation_file,
         update_file_status,
     )
-except ModuleNotFoundError:
-    from scripts.process_report import (
-        processar_relatorio_financeiro,
-        init_supabase_client as init_processor_supabase,
-        SupabaseLogger,
-    )
-    from scripts.process_conciliation import (
-        process_conciliation_file,
-        update_file_status,
-    )
+    print("[DEBUG] Módulos backend.scripts.* importados com sucesso.")
+except Exception as _e_backend_scripts:
+    try:
+        from scripts.process_report import (
+            processar_relatorio_financeiro,
+            init_supabase_client as init_processor_supabase,
+            SupabaseLogger,
+        )
+        from scripts.process_conciliation import (
+            process_conciliation_file,
+            update_file_status,
+        )
+        print("[DEBUG] Módulos scripts.* importados com sucesso.")
+    except Exception as _e_scripts:
+        print("[WARN] Módulos de scripts não encontrados. Endpoints relacionados permanecem desativados.")
+        import traceback as _tb
+        print(_tb.format_exc())
+        # Cria stubs para evitar NameError onde são referenciados mais abaixo (endpoints já retornam 410)
+        def processar_relatorio_financeiro(*args, **kwargs):
+            raise RuntimeError("processar_relatorio_financeiro indisponível neste build")
+        def init_processor_supabase(*args, **kwargs):
+            raise RuntimeError("init_processor_supabase indisponível neste build")
+        class SupabaseLogger:
+            def __init__(self, *a, **k): ...
+            def log(self, *a, **k): ...
+            def flush(self, *a, **k): ...
+        def process_conciliation_file(*args, **kwargs):
+            raise RuntimeError("process_conciliation_file indisponível neste build")
+        def update_file_status(*args, **kwargs):
+            return None
 
 @app.post("/upload/planilha-url", tags=["Uploads"], summary="[Desativado] Upload via URL para Storage")
 async def upload_planilha_url(
