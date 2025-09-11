@@ -136,12 +136,13 @@ async def receive_update(request: Request):
                 # Não bloquear o fluxo por erro de persistência
                 print('[WARN] failed to persist inbound message:', repr(_e_persist))
 
-            # Trata cliques de botões (novo e legado): interactive.button_reply OU button.payload
+            # Trata cliques de botões (novo e legado): interactive.button_reply, interactive.list_reply OU button.payload
             if msg_type in ('interactive', 'button'):
                 interactive = m.get('interactive') or {}
                 button_reply = interactive.get('button_reply') or {}
+                list_reply = interactive.get('list_reply') or {}
                 print("[DEBUG][WA] raw interactive payload:", interactive)  # Log completo
-                btn_id = (button_reply.get('id') or '').strip()
+                btn_id = (button_reply.get('id') or list_reply.get('id') or '').strip()
                 if not btn_id:
                     # Formato 'button' legado: { type: 'button', button: { text, payload } }
                     btn = (m.get('button') or {})
@@ -203,12 +204,15 @@ async def receive_update(request: Request):
                 # Para botões, inclui informação do botão clicado
                 interactive = m.get('interactive') or {}
                 button_reply = interactive.get('button_reply') or {}
-                btn_id = (button_reply.get('id') or '').strip()
+                list_reply = interactive.get('list_reply') or {}
+                btn_id = (button_reply.get('id') or list_reply.get('id') or '').strip()
                 if not btn_id:
                     btn = (m.get('button') or {})
                     btn_id = (btn.get('payload') or btn.get('id') or '').strip()
                 inbound['button_id'] = btn_id
-                inbound['button_title'] = button_reply.get('title') or (m.get('button') or {}).get('text') or ''
+                inbound['button_title'] = (
+                    button_reply.get('title') or list_reply.get('title') or (m.get('button') or {}).get('text') or ''
+                )
 
             conv = {"id": conversation_id, "contact_id": contact_id}
             result = handle_message(conv, inbound)
