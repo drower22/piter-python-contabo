@@ -18,6 +18,18 @@ class WhatsAppClient:
             except Exception:
                 pass
         self.graph_version = raw_version
+        # Debug BEFORE raising to help diagnose missing envs
+        env_phone = os.getenv("WHATSAPP_PHONE_ID")
+        env_token = os.getenv("WHATSAPP_TOKEN")
+        token_mask_dbg = (
+            (env_token[:6] + "..." + env_token[-4:]) if env_token and len(env_token) >= 12 else "(unset)"
+        )
+        print(
+            "[DEBUG] WhatsAppClient env check:",
+            f"WHATSAPP_PHONE_ID={'set' if env_phone else 'missing'},",
+            f"WHATSAPP_TOKEN={'set' if env_token else 'missing'} ({token_mask_dbg}),",
+            f"WHATSAPP_GRAPH_VERSION={self.graph_version}",
+        )
         if not self.phone_number_id or not self.token:
             raise ValueError("WHATSAPP_PHONE_ID e WHATSAPP_TOKEN são obrigatórios no ambiente.")
 
