@@ -149,19 +149,10 @@ async def receive_update(request: Request):
                 print("[DEBUG][WA] extracted btn_id:", btn_id)  # Log do ID extraído
 
                 if btn_id:
-                    print("[DEBUG][WA] handling button click for:", btn_id)  # Confirma que entrou no handler
+                    print(f"[DEBUG][WA] handling button click for: {btn_id} -> to:{to_number_digits}")
                     try:
-                        print('[DEBUG][WA] routing button id:', btn_id)
-                        # Persist inbound
-                        try:
-                            _insert_message(sb, conversation_id, 'in', 'interactive', m, wa_id)
-                            print("[DEBUG][WA] button click persisted successfully")
-                        except Exception as _e_persist:
-                            print('[WARN] failed to persist button click:', repr(_e_persist))
                         # Roteia pelos fluxos
                         if btn_id == 'view_summary':
-                            print("[DEBUG][WA] executing view_summary flow")
-                            # Dados mock para demo; em produção, consultar Supabase
                             summary = {
                                 'valor_pizzas': '4.520,00', 'qtd_pizzas': 180,
                                 'valor_bebidas': '1.240,00', 'qtd_bebidas': 210,
@@ -171,9 +162,11 @@ async def receive_update(request: Request):
                             flows.send_sales_summary(to_number_digits, summary)
                             import asyncio as _aio
                             _aio.create_task(flows.ask_consumption_after_delay(to_number_digits, 10))
+
                         elif btn_id == 'view_consumption':
                             items = [{'nome': f'Insumo {i}', 'qtd': 10*i, 'unid': 'un'} for i in range(1,11)]
                             flows.send_consumption_list(to_number_digits, items)
+
                         elif btn_id == 'view_low_stock':
                             items = [
                                 {'insumo': 'Mussarela', 'qtd_atual': 3, 'qtd_min': 8, 'unid': 'kg'},
