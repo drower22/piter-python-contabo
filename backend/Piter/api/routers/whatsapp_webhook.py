@@ -142,12 +142,28 @@ async def receive_update(request: Request):
                 button_reply = interactive.get('button_reply') or {}
                 list_reply = interactive.get('list_reply') or {}
                 print("[DEBUG][WA] raw interactive payload:", interactive)  # Log completo
-                btn_id = (button_reply.get('id') or list_reply.get('id') or '').strip()
+                raw_btn = (button_reply.get('id') or list_reply.get('id') or '').strip()
                 if not btn_id:
                     # Formato 'button' legado: { type: 'button', button: { text, payload } }
                     btn = (m.get('button') or {})
-                    btn_id = (btn.get('payload') or btn.get('id') or '').strip()
-                print("[DEBUG][WA] extracted btn_id:", btn_id)  # Log do ID extraído
+                    raw_btn = (btn.get('payload') or btn.get('id') or '').strip()
+
+                # Normaliza/compatibiliza payloads diversos
+                btn_id = raw_btn
+                # Se vier como JSON, tenta extrair 'id' ou 'action'
+                if btn_id and (btn_id.startswith('{') or btn_id.startswith('[')):
+                    try:
+                        import json as _json
+                        _obj = _json.loads(btn_id)
+                        if isinstance(_obj, dict):
+                            btn_id = _obj.get('id') or _obj.get('action') or btn_id
+                    except Exception:
+                        pass
+                # Lowercase, trim e torna prefix-safe (ex.: 'view_summary:1')
+                btn_id = (str(btn_id).strip().lower())
+                if ':' in btn_id:
+                    btn_id = btn_id.split(':', 1)[0]
+                print("[DEBUG][WA] extracted btn_id:", btn_id, "(raw=", raw_btn, ")")  # Log do ID extraído
 
                 if btn_id:
                     print(f"[DEBUG][WA] handling button click for: {btn_id} -> to:{to_number_digits}")
@@ -191,6 +207,9 @@ async def receive_update(request: Request):
                             flows.send_cmv_analysis(to_number_digits, data)
                         elif btn_id == 'view_cmv_actions':
                             flows.client.send_text(to_number_digits, 'Ações recomendadas: 1) revisar porcionamento de queijos; 2) ajustar preço das bebidas; 3) auditar perdas na abertura.')
+                        else:
+                            # Fallback: confirma recebimento para qualquer outro botão
+                            flows.client.send_text(to_number_digits, f"Recebi sua seleção: {btn_id}")
                     except Exception as _e_btn:
                         print('[ERROR] button handler failed:', repr(_e_btn))
                     # Não usar continue aqui - permite que o fluxo continue para handle_message()
