@@ -3,7 +3,7 @@ import sys
 import subprocess
 import traceback
 import re
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
@@ -87,6 +87,25 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"]
 )
+
+# Fallback de CORS para ambientes onde o proxy/CDN remove cabeçalhos do CORSMiddleware
+@app.middleware("http")
+async def _ensure_cors_headers(request: Request, call_next):
+    # Responde imediatamente a OPTIONS (preflight) com cabeçalhos CORS
+    if request.method == "OPTIONS":
+        resp = Response(status_code=200)
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+        resp.headers["Access-Control-Allow-Headers"] = "*"
+        resp.headers["Access-Control-Expose-Headers"] = "*"
+        return resp
+
+    response = await call_next(request)
+    response.headers.setdefault("Access-Control-Allow-Origin", "*")
+    response.headers.setdefault("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+    response.headers.setdefault("Access-Control-Allow-Headers", "*")
+    response.headers.setdefault("Access-Control-Expose-Headers", "*")
+    return response
 
 # Inclui routers do agente Piter
 app.include_router(health_router.router)
