@@ -1,115 +1,62 @@
-name: Deploy Piter to Contabo
+- name: Deploy via SSH
+  uses: appleboy/ssh-action@v1.0.3
+  with:
+    host: ${{ secrets.DEPLOY_HOST }}
+    username: ${{ secrets.DEPLOY_USER }}   # ex: root
+    key: ${{ secrets.DEPLOY_SSH_KEY }}     # chave para entrar no servidor
+    port: 22
+    script_stop: true
+    command_timeout: 30m
+    script: |
+      set -euo pipefail
 
-on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
+      APP_DIR="/opt/piter-python-contabo"
+      REPO_SSH="git@github-piter:drower22/piter-python-contabo.git"  # usa o alias que configuramos no servidor
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout (metadata only)
-        uses: actions/checkout@v4
+      echo "--- Preparando diretório ${APP_DIR} ---"
+      sudo mkdir -p "${APP_DIR}"
+      sudo chown -R ${USER}:${USER} "${APP_DIR}" || true
 
-      - name: Validate required secrets
-        run: |
-          if [ -z "${{ secrets.DEPLOY_HOST }}" ]; then echo "ERROR: DEPLOY_HOST secret is missing"; exit 1; fi
-          if [ -z "${{ secrets.DEPLOY_USER }}" ]; then echo "ERROR: DEPLOY_USER secret is missing"; exit 1; fi
-          if [ -z "${{ secrets.DEPLOY_SSH_KEY }}" ]; then echo "ERROR: DEPLOY_SSH_KEY secret is missing"; exit 1; fi
+      if [ -d "${APP_DIR}/.git" ]; then
+        echo "--- Atualizando repo existente ---"
+        cd "${APP_DIR}"
+        git fetch --all
+        git reset --hard origin/main
+      else
+        echo "--- Clonando repo (SSH com host alias 'github-piter') ---"
+        # Garante known_hosts para github.com
+        mkdir -p ~/.ssh && chmod 700 ~/.ssh
+        ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+        chmod 644 ~/.ssh/known_hosts || true
 
-      - name: Debug and Test Connectivity
-        run: |
-          echo "--- Debugging Info ---"
-          echo "Attempting to connect to DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}"
-          echo "----------------------"
-          
-          echo "Testing TCP connection to port 22..."
-          if ! nc -zv -w 10 ${{ secrets.DEPLOY_HOST }} 22; then
-            echo "ERROR: Connection to ${{ secrets.DEPLOY_HOST }} on port 22 failed."
-            echo "Please verify the following:"
-            echo "1. The DEPLOY_HOST secret is the correct server IP (e.g., 89.116.29.187), NOT a proxied domain."
-            echo "2. The server's firewall (e.g., 'sudo ufw status') allows traffic on port 22."
-            exit 1
-          fi
-          echo "Connection to port 22 successful." 
+        git clone --branch main "${REPO_SSH}" "${APP_DIR}"
+        cd "${APP_DIR}"
+      fi
 
-      - name: SSH ping (debug)
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          port: 22
-          timeout: 90s
-          command_timeout: 15m
-          debug: true
-          script_stop: true
-          script: |
-            echo "SSH OK on $(hostname)"
+      echo "--- Venv e dependências ---"
+      if [ ! -d .venv ]; then
+        python3 -m venv .venv
+      fi
+      . .venv/bin/activate
+      python -m pip install -U pip
+      if [ -f requirements.txt ]; then
+        pip install -r requirements.txt
+      else
+        pip install fastapi uvicorn[standard] supabase python-dotenv requests pydantic
+      fi
+      deactivate
 
-      - name: Remote deploy Piter
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          port: 22
-          timeout: 5m
-          command_timeout: 30m
-          debug: true
-          script_stop: true
-          envs: REPO_PAT
-          envs_format: export
-          script: |
-            set -euo pipefail
-            echo "--- Ensuring clean deploy by removing old directory ---"
-            rm -rf /home/piter/piter-app
-            
-            echo "--- Cloning fresh repository ---"
-            if ! command -v git >/dev/null 2>&1; then
-              echo "Installing git..."
-              sudo apt-get update -y && sudo apt-get install -y git openssh-client
-            fi
-            mkdir -p /home/piter/.ssh
-            chmod 700 /home/piter/.ssh
-            # Ensure proper permissions on deploy key if present
-            if [ -f /home/piter/.ssh/piter_deploy_key ]; then chmod 600 /home/piter/.ssh/piter_deploy_key; fi
-            # Preload GitHub host key to avoid interactive prompt
-            ssh-keyscan -t ed25519 github.com >> /home/piter/.ssh/known_hosts 2>/dev/null || true
-            chmod 644 /home/piter/.ssh/known_hosts || true
+      echo "--- Reiniciando serviço ---"
+      sudo systemctl daemon-reload
+      sudo systemctl restart piter-api
+      sleep 2
+      sudo systemctl status piter-api --no-pager -n 20 || true
 
-            echo "--- Trying SSH clone with deploy key (if available) ---"
-            if [ -f /home/piter/.ssh/piter_deploy_key ]; then
-              if GIT_SSH_COMMAND='ssh -i /home/piter/.ssh/piter_deploy_key -o StrictHostKeyChecking=no' \
-                 git clone --branch main git@github.com:drower22/piter-python-contabo.git /home/piter/piter-app; then
-                echo "SSH clone succeeded."
-              else
-                echo "SSH clone failed; will try HTTPS with token if provided."
-              fi
-            fi
+      echo "--- Testando health local ---"
+      curl -sS http://127.0.0.1:8000/health || true
 
-            if [ ! -d /home/piter/piter-app/.git ]; then
-              if [ -n "${REPO_PAT:-}" ]; then
-                echo "--- Cloning via HTTPS using REPO_PAT ---"
-                git clone --branch main "https://x-access-token:${REPO_PAT}@github.com/drower22/piter-python-contabo.git" /home/piter/piter-app
-              else
-                echo "ERROR: Could not clone repository. Neither SSH deploy key nor REPO_PAT available/working."
-                exit 1
-              fi
-            fi
-            cd /home/piter/piter-app
-            if [ ! -d .venv ]; then
-              python3 -m venv .venv
-            fi
-            source .venv/bin/activate
-            python -m pip install -U pip
-            if [ -f requirements.txt ]; then
-              pip install -r requirements.txt
-            elif [ -f backend/requirements.txt ]; then
-              pip install -r backend/requirements.txt
-            fi
-            deactivate
+      echo "--- Recarregando Nginx ---"
+      sudo nginx -t && sudo systemctl reload nginx || true
             sudo systemctl restart piter-api
             sudo systemctl reload nginx || true
             systemctl status piter-api --no-pager -n 10 || true
