@@ -1,57 +1,70 @@
-- name: Deploy via SSH
-  uses: appleboy/ssh-action@v1.0.3
-  env:
-    REPO_PAT: ${{ secrets.REPO_PAT }}
-  with:
-    host: ${{ secrets.DEPLOY_HOST }}       # ex: 89.116.29.187
-    username: ${{ secrets.DEPLOY_USER }}   # ex: root
-    key: ${{ secrets.DEPLOY_SSH_KEY }}     # chave para entrar no servidor
-    port: 22
-    script_stop: true
-    command_timeout: 30m
-    script: |
-      set -euo pipefail
+name: Deploy Piter to Contabo
 
-      APP_DIR="/opt/piter-python-contabo"
-      REPO_HTTPS="https://x-access-token:${REPO_PAT}@github.com/drower22/piter-python-contabo.git"
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: {}
 
-      echo "--- Preparando diretório ${APP_DIR} ---"
-      sudo mkdir -p "${APP_DIR}"
-      # Se não for root, ajuste permissões (não é crítico se for root)
-      sudo chown -R ${USER}:${USER} "${APP_DIR}" || true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (for reference)
+        uses: actions/checkout@v4
 
-      if [ -d "${APP_DIR}/.git" ]; then
-        echo "--- Atualizando repo existente ---"
-        cd "${APP_DIR}"
-        git fetch --all
-        git reset --hard origin/main
-      else
-        echo "--- Clonando repo (HTTPS + PAT) ---"
-        git clone --branch main "${REPO_HTTPS}" "${APP_DIR}"
-        cd "${APP_DIR}"
-      fi
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          REPO_PAT: ${{ secrets.REPO_PAT }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}       # ex: 89.116.29.187
+          username: ${{ secrets.DEPLOY_USER }}   # ex: root
+          key: ${{ secrets.DEPLOY_SSH_KEY }}     # chave para entrar no servidor
+          port: 22
+          script_stop: true
+          command_timeout: 30m
+          script: |
+            set -euo pipefail
 
-      echo "--- Venv e dependências ---"
-      if [ ! -d .venv ]; then
-        python3 -m venv .venv
-      fi
-      . .venv/bin/activate
-      python -m pip install -U pip
-      if [ -f requirements.txt ]; then
-        pip install -r requirements.txt
-      else
-        pip install fastapi uvicorn[standard] supabase python-dotenv requests pydantic
-      fi
-      deactivate
+            APP_DIR="/opt/piter-python-contabo"
+            REPO_HTTPS="https://x-access-token:${REPO_PAT}@github.com/drower22/piter-python-contabo.git"
 
-      echo "--- Reiniciando serviço ---"
-      sudo systemctl daemon-reload
-      sudo systemctl restart piter-api
-      sleep 2
-      sudo systemctl status piter-api --no-pager -n 20 || true
+            echo "--- Preparando diretório ${APP_DIR} ---"
+            sudo mkdir -p "${APP_DIR}"
+            sudo chown -R ${USER}:${USER} "${APP_DIR}" || true
 
-      echo "--- Testando health local ---"
-      curl -sS http://127.0.0.1:8000/health || true
+            if [ -d "${APP_DIR}/.git" ]; then
+              echo "--- Atualizando repo existente ---"
+              cd "${APP_DIR}"
+              git fetch --all
+              git reset --hard origin/main
+            else
+              echo "--- Clonando repo (HTTPS + PAT) ---"
+              git clone --branch main "${REPO_HTTPS}" "${APP_DIR}"
+              cd "${APP_DIR}"
+            fi
 
-      echo "--- Recarregando Nginx ---"
-      sudo nginx -t && sudo systemctl reload nginx || true
+            echo "--- Venv e dependências ---"
+            if [ ! -d .venv ]; then
+              python3 -m venv .venv
+            fi
+            . .venv/bin/activate
+            python -m pip install -U pip
+            if [ -f requirements.txt ]; then
+              pip install -r requirements.txt
+            else
+              pip install fastapi uvicorn[standard] supabase python-dotenv requests pydantic
+            fi
+            deactivate
+
+            echo "--- Reiniciando serviço ---"
+            sudo systemctl daemon-reload
+            sudo systemctl restart piter-api
+            sleep 2
+            sudo systemctl status piter-api --no-pager -n 20 || true
+
+            echo "--- Testando health local ---"
+            curl -sS http://127.0.0.1:8000/health || true
+
+            echo "--- Recarregando Nginx ---"
+            sudo nginx -t && sudo systemctl reload nginx || true
