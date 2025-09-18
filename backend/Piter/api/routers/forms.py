@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from ...infra.supabase import get_supabase
+from ...infrastructure.database.supabase_client import get_supabase
 import logging
 import traceback
 

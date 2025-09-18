@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Dict, Any, List
 
-from ..infra.whatsapp import WhatsAppClient
+from ..infrastructure.messaging.whatsapp_client import WhatsAppClient
 
 
 class DemoFlowsService:

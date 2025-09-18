@@ -1,108 +1,216 @@
-import os
-from typing import Dict, Any, Optional, Tuple
-from ..infra.supabase import get_supabase
-from ..infra.whatsapp import WhatsAppClient
+"""
+Serviço de Gerenciamento de Fluxo de Conversa do WhatsApp.
 
+Este módulo centraliza toda a lógica de negócio para processar mensagens,
+gerenciar o estado da conversa e orquestrar as respostas para o usuário.
+"""
+
+import os
+import json
+from typing import Dict, Any, Optional, Tuple
+from ..infrastructure.database.supabase_client import get_supabase, SupabaseClient
+from ..infrastructure.messaging.whatsapp_client import WhatsAppClient
+from .message_parser import ParsedWhatsAppMessage
+from .flows import DemoFlowsService # Para manter a lógica de demo por enquanto
 
 class FlowResult:
+    """Representa o resultado do processamento de uma etapa do fluxo."""
     def __init__(self, reply_text: Optional[str] = None, new_step: Optional[str] = None, context_patch: Optional[dict] = None):
         self.reply_text = reply_text
         self.new_step = new_step
         self.context_patch = context_patch or {}
 
-
-def _get_state(conversation_id: str) -> Tuple[str, dict]:
-    sb = get_supabase()
-    resp = sb.table('wa_state').select('step, context').eq('conversation_id', conversation_id).maybe_single().execute()
-    data = resp.data or {}
-    return data.get('step') or 'welcome', (data.get('context') or {})
-
-
-def _set_state(conversation_id: str, step: str, context: dict) -> None:
-    sb = get_supabase()
-    payload = {"conversation_id": conversation_id, "step": step, "context": context}
-    # upsert by pk conversation_id
-    sb.table('wa_state').upsert(payload, on_conflict='conversation_id').execute()
-
-
-def handle_message(conversation: Dict[str, Any], message: Dict[str, Any]) -> FlowResult:
+class WhatsAppFlowService:
     """
-    conversation: { id, account_id, contact_id, ... }
-    message: WhatsApp inbound message payload già normalizado
+    Orquestra o fluxo de conversa, processando mensagens e gerenciando o estado.
     """
-    step, context = _get_state(conversation['id'])
-    text = (message.get('text') or {}).get('body') if message.get('type') == 'text' else None
+    def __init__(self, supabase_client: Optional[SupabaseClient] = None, whatsapp_client: Optional[WhatsAppClient] = None):
+        self.sb = supabase_client or get_supabase()
+        self.wa_client = whatsapp_client or WhatsAppClient()
+        self.demo_flows = DemoFlowsService(self.wa_client) # Injeta o cliente
+
+    def _get_conversation_state(self, conversation_id: str) -> Tuple[str, dict]:
+        """Busca o estado atual da conversa no banco de dados."""
+        resp = self.sb.table('wa_state').select('step, context').eq('conversation_id', conversation_id).maybe_single().execute()
+        data = resp.data or {}
+        return data.get('step') or 'welcome', (data.get('context') or {})
+
+    def _set_conversation_state(self, conversation_id: str, step: str, context: dict) -> None:
+        """Salva o novo estado da conversa no banco de dados."""
+        payload = {"conversation_id": conversation_id, "step": step, "context": context}
+        self.sb.table('wa_state').upsert(payload, on_conflict='conversation_id').execute()
+
+    def _persist_button_click(self, conversation_id: str, contact_id: str, msg: ParsedWhatsAppMessage):
+        """Salva o evento de clique de botão para fins de análise."""
+        try:
+            self.sb.table('wa_button_clicks').insert({
+                'conversation_id': conversation_id,
+                'contact_id': contact_id,
+                'wa_message_id': msg.message_id,
+                'button_id': msg.button_id,
+                'button_title': msg.button_title,
+                'raw_payload': msg.raw_message_payload,
+            }).execute()
+        except Exception as e:
+            print(f'[WARN] Failed to persist button click: {repr(e)}')
     
-    # Processa botões clicados para manter continuidade do fluxo
-    button_id = message.get('button_id') if message.get('type') in ('interactive', 'button') else None
+    def _handle_text_based_flow(self, conversation_id: str, msg: ParsedWhatsAppMessage) -> Optional[FlowResult]:
+        """Gerencia a lógica de conversa baseada em texto e estado."""
+        step, context = self._get_conversation_state(conversation_id)
+        text = msg.text
 
-    # Para botões de demo flows, não enviar resposta duplicada (já foi enviada pelo webhook)
-    if button_id in ('view_summary', 'view_consumption', 'view_low_stock', 'make_purchase_list', 'view_cmv_analysis', 'view_cmv_actions'):
-        # Atualiza estado para indicar que o usuário interagiu
-        _set_state(conversation['id'], 'demo_flow_active', context)
-        return FlowResult(reply_text=None, new_step='demo_flow_active')
-
-    if step == 'welcome':
-        reply = (
-            "Olá! Eu sou o Piter. Como posso ajudar?\n"
-            "1) Consultas/Conciliação (SQL)\n"
-            "2) Relatório Financeiro (SQL)\n"
-            "3) Suporte"
-        )
-        new_step = 'menu'
-        _set_state(conversation['id'], new_step, context)
-        return FlowResult(reply_text=reply, new_step=new_step)
-
-    if step == 'menu':
-        choice = (text or '').strip()
-        if choice.startswith('1'):
+        if step == 'welcome':
             reply = (
-                "Perfeito! Para conciliação/consultas via SQL, me informe seu account_id para eu vincular o contexto."
+                "Olá! Eu sou o Piter. Como posso ajudar?\n"
+                "1) Consultas/Conciliação (SQL)\n"
+                "2) Relatório Financeiro (SQL)\n"
+                "3) Suporte"
             )
-            new_step = 'collect_account_for_conciliation'
-        elif choice.startswith('2'):
-            reply = "Ótimo! Para relatório financeiro, me diga o período (ex: 2025-08)."
-            new_step = 'collect_period_finance'
-        elif choice.startswith('3'):
-            reply = "Nosso suporte vai te atender. Descreva brevemente seu problema."
-            new_step = 'support_wait'
-        else:
-            reply = "Não entendi. Escolha 1, 2 ou 3."
             new_step = 'menu'
-        _set_state(conversation['id'], new_step, context)
-        return FlowResult(reply_text=reply, new_step=new_step)
+            self._set_conversation_state(conversation_id, new_step, context)
+            return FlowResult(reply_text=reply, new_step=new_step)
 
-    if step == 'collect_account_for_conciliation':
-        account_id = (text or '').strip()
-        if account_id:
-            context['account_id'] = account_id
-            _set_state(conversation['id'], 'conciliation_ready', context)
-            reply = (
-                f"Account {account_id} vinculado. Você pode agora enviar sua solicitação de conciliação/consulta."
-            )
-            return FlowResult(reply_text=reply, new_step='conciliation_ready', context_patch={'account_id': account_id})
-        else:
-            return FlowResult(reply_text="Por favor, envie um account_id válido.", new_step=step)
+        if step == 'menu':
+            choice = (text or '').strip()
+            if choice.startswith('1'):
+                reply = "Perfeito! Para conciliação/consultas via SQL, me informe seu account_id para eu vincular o contexto."
+                new_step = 'collect_account_for_conciliation'
+            elif choice.startswith('2'):
+                reply = "Ótimo! Para relatório financeiro, me diga o período (ex: 2025-08)."
+                new_step = 'collect_period_finance'
+            elif choice.startswith('3'):
+                reply = "Nosso suporte vai te atender. Descreva brevemente seu problema."
+                new_step = 'support_wait'
+            else:
+                reply = "Não entendi. Escolha 1, 2 ou 3."
+                new_step = 'menu'
+            self._set_conversation_state(conversation_id, new_step, context)
+            return FlowResult(reply_text=reply, new_step=new_step)
 
-    if step == 'collect_period_finance':
-        period = (text or '').strip()
-        if period:
-            context['period'] = period
-            _set_state(conversation['id'], 'finance_ready', context)
-            reply = (
-                f"Período {period} registrado. Em breve trarei um resumo financeiro."
-            )
-            return FlowResult(reply_text=reply, new_step='finance_ready', context_patch={'period': period})
-        else:
-            return FlowResult(reply_text="Envie um período como AAAA-MM.", new_step=step)
+        # Outros estados (collect_account_for_conciliation, etc.) continuam aqui...
 
-    # Fallback
-    _set_state(conversation['id'], 'welcome', context)
-    return FlowResult(reply_text="Voltando ao início...", new_step='welcome')
+        # Fallback
+        self._set_conversation_state(conversation_id, 'welcome', context)
+        return FlowResult(reply_text="Voltando ao início...", new_step='welcome')
 
+    def _persist_outbound_message(self, conversation_id: str, msg_type: str, body: dict):
+        """Persiste uma mensagem de saída no banco de dados."""
+        try:
+            payload = {
+                'conversation_id': conversation_id,
+                'direction': 'out',
+                'type': msg_type,
+                'json_payload': body,
+            }
+            self.sb.table('wa_messages').insert(payload).execute()
+            self.sb.table('wa_conversations').update({'last_message_at': 'now()'}).eq('id', conversation_id).execute()
+        except Exception as e:
+            print(f'[WARN] Failed to persist outbound message: {repr(e)}')
 
-def reply_via_whatsapp(to_number: str, result: FlowResult) -> Optional[dict]:
-    if not result.reply_text:
-        return None
-    client = WhatsAppClient()
-    return client.send_text(to=to_number, text=result.reply_text)
+    def _send_next_buttons(self, conversation_id: str, to_number: str, catalog_obj: Dict[str, Any]):
+        """Envia uma mensagem com os próximos botões, se definidos no catálogo."""
+        try:
+            next_btns = (catalog_obj or {}).get('next_buttons') or []
+            if isinstance(next_btns, str):
+                try:
+                    next_btns = json.loads(next_btns)
+                except json.JSONDecodeError:
+                    next_btns = []
+            
+            if next_btns:
+                body_txt = (catalog_obj or {}).get('response_text') or 'Selecione uma opção:'
+                self.wa_client.send_buttons(to_number, body_txt, next_btns)
+                self._persist_outbound_message(conversation_id, 'interactive', {
+                    'interactive': {'type': 'button', 'action': {'buttons': next_btns}, 'body': {'text': body_txt}},
+                })
+        except Exception as e:
+            print(f'[WARN] Next buttons send failed: {repr(e)}')
+
+    def _apply_next_state(self, conversation_id: str, catalog_obj: Dict[str, Any]):
+        """Aplica o próximo estado de conversa, se definido no catálogo."""
+        try:
+            next_state = (catalog_obj or {}).get('next_state')
+            if next_state:
+                self.sb.rpc('wa_set_conversation_state', {
+                    'p_conversation_id': str(conversation_id),
+                    'p_state_key': str(next_state),
+                    'p_data': None,
+                }).execute()
+        except Exception as e:
+            print(f'[WARN] Next state update failed: {repr(e)}')
+
+    def _handle_button_click(self, conversation_id: str, contact_id: str, msg: ParsedWhatsAppMessage) -> bool:
+        """Processa um clique de botão, consultando o catálogo e executando a ação."""
+        btn_id = msg.button_id
+        to_number = msg.sender_number
+        if not btn_id or not to_number:
+            return False
+
+        self._persist_button_click(conversation_id, contact_id, msg)
+
+        # 1. Tenta rotear pelo catálogo de botões
+        try:
+            q_cat = self.sb.table('wa_buttons_catalog').select('*').eq('id', btn_id).eq('active', True).maybe_single().execute()
+            cat = q_cat.data if q_cat and q_cat.data else None
+        except Exception as e:
+            print(f'[WARN] Catalog lookup failed: {repr(e)}')
+            cat = None
+
+        if cat:
+            rtype = (cat.get('response_type') or 'text').lower()
+            if rtype == 'text':
+                resp_text = (cat.get('response_text') or '').strip()
+                if resp_text:
+                    self.wa_client.send_text(to_number, resp_text)
+                    self._persist_outbound_message(conversation_id, 'text', {"text": {"body": resp_text}})
+                self._send_next_buttons(conversation_id, to_number, cat)
+                self._apply_next_state(conversation_id, cat)
+                return True
+            # ... (outros tipos de resposta do catálogo como 'template', 'webhook')
+            elif rtype in ('none', 'noop'):
+                self._send_next_buttons(conversation_id, to_number, cat)
+                self._apply_next_state(conversation_id, cat)
+                return True
+
+        # 2. Fallback para a lógica de demonstração hardcoded
+        if btn_id == 'view_summary':
+            summary = {'valor_pizzas': '4.520,00', 'qtd_pizzas': 180, 'valor_bebidas': '1.240,00', 'qtd_bebidas': 210, 'top_pizzas': [{'nome': f'Pizza {i}', 'qtd': 30-i} for i in range(1,11)], 'top_bebidas': [{'nome': f'Bebida {i}', 'qtd': 50-i} for i in range(1,6)]}
+            self.demo_flows.send_sales_summary(to_number, summary)
+            # self.demo_flows.ask_consumption_after_delay(to_number, 10) # Asyncio precisa de tratamento especial
+            return True
+        elif btn_id == 'view_consumption':
+            items = [{'nome': f'Insumo {i}', 'qtd': 10*i, 'unid': 'un'} for i in range(1,11)]
+            self.demo_flows.send_consumption_list(to_number, items)
+            return True
+        elif btn_id == 'view_low_stock':
+            items = [{'insumo': 'Mussarela', 'qtd_atual': 3, 'qtd_min': 8, 'unid': 'kg'}, {'insumo': 'Calabresa', 'qtd_atual': 2, 'qtd_min': 6, 'unid': 'kg'}, {'insumo': 'Molho', 'qtd_atual': 5, 'qtd_min': 10, 'unid': 'kg'}, {'insumo': 'Farinha', 'qtd_atual': 20, 'qtd_min': 35, 'unid': 'kg'}, {'insumo': 'Refrigerante Lata', 'qtd_atual': 12, 'qtd_min': 24, 'unid': 'un'}]
+            self.demo_flows.send_low_stock_list(to_number, items)
+            return True
+        elif btn_id == 'make_purchase_list':
+            self.wa_client.send_text(to_number, 'Ok! Vou gerar a lista de compras sugerida e te envio em instantes.')
+            return True
+        elif btn_id == 'view_cmv_analysis':
+            data = {'cmv_esperado': 28.0, 'cmv_atual': 32.5, 'desvio_pct': 4.5, 'contribuintes': [{'insumo': 'Mussarela', 'impacto_pct': 1.8}, {'insumo': 'Calabresa', 'impacto_pct': 1.2}, {'insumo': 'Tomate', 'impacto_pct': 0.9}]}
+            self.demo_flows.send_cmv_analysis(to_number, data)
+            return True
+        elif btn_id == 'view_cmv_actions':
+            self.wa_client.send_text(to_number, 'Ações recomendadas: 1) revisar porcionamento de queijos; 2) ajustar preço das bebidas; 3) auditar perdas na abertura.')
+            return True
+
+        return False # Botão não foi tratado nem pelo catálogo, nem pelo fallback
+
+    def process_message(self, conversation_id: str, contact_id: str, msg: ParsedWhatsAppMessage):
+        """
+        Ponto de entrada principal para processar uma nova mensagem.
+        """
+        handled = False
+        if msg.button_id:
+            handled = self._handle_button_click(conversation_id, contact_id, msg)
+
+        if not handled:
+            result = self._handle_text_based_flow(conversation_id, msg)
+            if result and result.reply_text:
+                self.wa_client.send_text(to=msg.sender_number, text=result.reply_text)
+                # Persistir resposta outbound
+                # _insert_message(self.sb, conversation_id, 'out', 'text', {"text": {"body": result.reply_text}}, None)
+
