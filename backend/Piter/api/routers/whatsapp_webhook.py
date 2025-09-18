@@ -171,49 +171,212 @@ async def receive_update(request: Request):
             if btn_id:
                 print(f"[DEBUG][WA] handling button click for: {btn_id} -> to:{to_number_digits}")
                 try:
-                    # Roteamento dos fluxos de demo
-                    if btn_id == 'view_summary':
-                        summary = {
-                            'valor_pizzas': '4.520,00', 'qtd_pizzas': 180,
-                            'valor_bebidas': '1.240,00', 'qtd_bebidas': 210,
-                            'top_pizzas': [{'nome': f'Pizza {i}', 'qtd': 30-i} for i in range(1,11)],
-                            'top_bebidas': [{'nome': f'Bebida {i}', 'qtd': 50-i} for i in range(1,6)],
-                        }
-                        flows.send_sales_summary(to_number_digits, summary)
-                        import asyncio as _aio
-                        _aio.create_task(flows.ask_consumption_after_delay(to_number_digits, 10))
-                        handled = True
-                    elif btn_id == 'view_consumption':
-                        items = [{'nome': f'Insumo {i}', 'qtd': 10*i, 'unid': 'un'} for i in range(1,11)]
-                        flows.send_consumption_list(to_number_digits, items)
-                        handled = True
-                    elif btn_id == 'view_low_stock':
-                        items = [
-                            {'insumo': 'Mussarela', 'qtd_atual': 3, 'qtd_min': 8, 'unid': 'kg'},
-                            {'insumo': 'Calabresa', 'qtd_atual': 2, 'qtd_min': 6, 'unid': 'kg'},
-                            {'insumo': 'Molho', 'qtd_atual': 5, 'qtd_min': 10, 'unid': 'kg'},
-                            {'insumo': 'Farinha', 'qtd_atual': 20, 'qtd_min': 35, 'unid': 'kg'},
-                            {'insumo': 'Refrigerante Lata', 'qtd_atual': 12, 'qtd_min': 24, 'unid': 'un'},
-                        ]
-                        flows.send_low_stock_list(to_number_digits, items)
-                        handled = True
-                    elif btn_id == 'make_purchase_list':
-                        flows.client.send_text(to_number_digits, 'Ok! Vou gerar a lista de compras sugerida e te envio em instantes.')
-                        handled = True
-                    elif btn_id == 'view_cmv_analysis':
-                        data = {
-                            'cmv_esperado': 28.0, 'cmv_atual': 32.5, 'desvio_pct': 4.5,
-                            'contribuintes': [
-                                {'insumo': 'Mussarela', 'impacto_pct': 1.8},
-                                {'insumo': 'Calabresa', 'impacto_pct': 1.2},
-                                {'insumo': 'Tomate', 'impacto_pct': 0.9},
+                    # 1) Persist click for analytics
+                    try:
+                        sb.table('wa_button_clicks').insert({
+                            'conversation_id': conversation_id,
+                            'contact_id': contact_id,
+                            'wa_message_id': wa_id,
+                            'button_id': btn_id,
+                            'button_title': btn_title,
+                            'raw_payload': m,
+                        }).execute()
+                    except Exception as _e_click:
+                        print('[WARN] failed to persist button click:', repr(_e_click))
+
+                    # 2) Try catalog-driven routing first
+                    cat = None
+                    try:
+                        q_cat = sb.table('wa_buttons_catalog').select('*').eq('id', btn_id).eq('active', True).maybe_single().execute()
+                        cat = q_cat.data if q_cat and q_cat.data else None
+                    except Exception as _e_cat:
+                        print('[WARN] catalog lookup failed:', repr(_e_cat))
+
+                    def _persist_out_text(txt: str):
+                        try:
+                            _insert_message(sb, conversation_id, 'out', 'text', {"text": {"body": txt}}, None)
+                        except Exception as _e_po:
+                            print('[WARN] persist outbound text failed:', repr(_e_po))
+
+                    def _send_next_buttons_if_any(cat_obj):
+                        try:
+                            next_btns = (cat_obj or {}).get('next_buttons') or []
+                            if isinstance(next_btns, str):
+                                import json as _json
+                                try:
+                                    next_btns = _json.loads(next_btns)
+                                except Exception:
+                                    next_btns = []
+                            if next_btns:
+                                body_txt = (cat_obj or {}).get('response_text') or 'Selecione uma opção:'
+                                flows.client.send_buttons(to_number_digits, body_txt, next_btns)
+                                # persist interactive outbound for traceability
+                                try:
+                                    _insert_message(sb, conversation_id, 'out', 'interactive', {
+                                        'interactive': {'type': 'button', 'action': {'buttons': next_btns}, 'body': {'text': body_txt}},
+                                    }, None)
+                                except Exception as _e_pi:
+                                    print('[WARN] persist outbound buttons failed:', repr(_e_pi))
+                        except Exception as _e_nb:
+                            print('[WARN] next buttons send failed:', repr(_e_nb))
+
+                    def _apply_next_state(cat_obj):
+                        try:
+                            next_state = (cat_obj or {}).get('next_state')
+                            if next_state:
+                                sb.rpc('wa_set_conversation_state', {
+                                    'p_conversation_id': str(conversation_id),
+                                    'p_state_key': str(next_state),
+                                    'p_data': None,
+                                }).execute()
+                        except Exception as _e_ns:
+                            print('[WARN] next state update failed:', repr(_e_ns))
+
+                    if cat:
+                        rtype = (cat.get('response_type') or 'text').lower()
+                        if rtype == 'text':
+                            resp_text = (cat.get('response_text') or '').strip()
+                            if resp_text:
+                                flows.client.send_text(to_number_digits, resp_text)
+                                _persist_out_text(resp_text)
+                            _send_next_buttons_if_any(cat)
+                            _apply_next_state(cat)
+                            handled = True
+                        elif rtype == 'template':
+                            # template_vars may be json or text json
+                            import json as _json
+                            components = None
+                            vars_raw = cat.get('template_vars')
+                            if isinstance(vars_raw, str):
+                                try:
+                                    vars_raw = _json.loads(vars_raw)
+                                except Exception:
+                                    vars_raw = None
+                            if isinstance(vars_raw, list) and vars_raw:
+                                components = [{"type": "body", "parameters": vars_raw}]
+                            try:
+                                from ...infra.whatsapp import WhatsAppClient
+                                _wa = flows.client if isinstance(getattr(flows, 'client', None), WhatsAppClient) else WhatsAppClient()
+                            except Exception:
+                                from ...infra.whatsapp import WhatsAppClient
+                                _wa = WhatsAppClient()
+                            _wa.send_template(
+                                to=to_number_digits,
+                                template=str(cat.get('template_name') or ''),
+                                language=str(cat.get('template_lang') or 'pt_BR'),
+                                components=components
+                            )
+                            # Persist minimal outbound record
+                            try:
+                                _insert_message(sb, conversation_id, 'out', 'template', {
+                                    'template': {
+                                        'name': cat.get('template_name'),
+                                        'language': {'code': cat.get('template_lang') or 'pt_BR'},
+                                        'components': components or []
+                                    }
+                                }, None)
+                            except Exception as _e_tp:
+                                print('[WARN] persist outbound template failed:', repr(_e_tp))
+                            _send_next_buttons_if_any(cat)
+                            _apply_next_state(cat)
+                            handled = True
+                        elif rtype in ('none', 'noop'):
+                            _send_next_buttons_if_any(cat)
+                            _apply_next_state(cat)
+                            handled = True
+                        elif rtype == 'webhook':
+                            # Fallback to existing demo flows behaviour for known IDs
+                            # so current demos keep working while we plug business webhooks later
+                            if btn_id == 'view_summary':
+                                summary = {
+                                    'valor_pizzas': '4.520,00', 'qtd_pizzas': 180,
+                                    'valor_bebidas': '1.240,00', 'qtd_bebidas': 210,
+                                    'top_pizzas': [{'nome': f'Pizza {i}', 'qtd': 30-i} for i in range(1,11)],
+                                    'top_bebidas': [{'nome': f'Bebida {i}', 'qtd': 50-i} for i in range(1,6)],
+                                }
+                                flows.send_sales_summary(to_number_digits, summary)
+                                import asyncio as _aio
+                                _aio.create_task(flows.ask_consumption_after_delay(to_number_digits, 10))
+                                handled = True
+                            elif btn_id == 'view_consumption':
+                                items = [{'nome': f'Insumo {i}', 'qtd': 10*i, 'unid': 'un'} for i in range(1,11)]
+                                flows.send_consumption_list(to_number_digits, items)
+                                handled = True
+                            elif btn_id == 'view_low_stock':
+                                items = [
+                                    {'insumo': 'Mussarela', 'qtd_atual': 3, 'qtd_min': 8, 'unid': 'kg'},
+                                    {'insumo': 'Calabresa', 'qtd_atual': 2, 'qtd_min': 6, 'unid': 'kg'},
+                                    {'insumo': 'Molho', 'qtd_atual': 5, 'qtd_min': 10, 'unid': 'kg'},
+                                    {'insumo': 'Farinha', 'qtd_atual': 20, 'qtd_min': 35, 'unid': 'kg'},
+                                    {'insumo': 'Refrigerante Lata', 'qtd_atual': 12, 'qtd_min': 24, 'unid': 'un'},
+                                ]
+                                flows.send_low_stock_list(to_number_digits, items)
+                                handled = True
+                            elif btn_id == 'make_purchase_list':
+                                flows.client.send_text(to_number_digits, 'Ok! Vou gerar a lista de compras sugerida e te envio em instantes.')
+                                handled = True
+                            elif btn_id == 'view_cmv_analysis':
+                                data = {
+                                    'cmv_esperado': 28.0, 'cmv_atual': 32.5, 'desvio_pct': 4.5,
+                                    'contribuintes': [
+                                        {'insumo': 'Mussarela', 'impacto_pct': 1.8},
+                                        {'insumo': 'Calabresa', 'impacto_pct': 1.2},
+                                        {'insumo': 'Tomate', 'impacto_pct': 0.9},
+                                    ]
+                                }
+                                flows.send_cmv_analysis(to_number_digits, data)
+                                handled = True
+                            elif btn_id == 'view_cmv_actions':
+                                flows.client.send_text(to_number_digits, 'Ações recomendadas: 1) revisar porcionamento de queijos; 2) ajustar preço das bebidas; 3) auditar perdas na abertura.')
+                                handled = True
+                            _send_next_buttons_if_any(cat)
+                            _apply_next_state(cat)
+                        else:
+                            print('[WARN] Unknown response_type in catalog:', rtype)
+                    else:
+                        # 3) No catalog entry found: keep previous hardcoded demo behaviour
+                        if btn_id == 'view_summary':
+                            summary = {
+                                'valor_pizzas': '4.520,00', 'qtd_pizzas': 180,
+                                'valor_bebidas': '1.240,00', 'qtd_bebidas': 210,
+                                'top_pizzas': [{'nome': f'Pizza {i}', 'qtd': 30-i} for i in range(1,11)],
+                                'top_bebidas': [{'nome': f'Bebida {i}', 'qtd': 50-i} for i in range(1,6)],
+                            }
+                            flows.send_sales_summary(to_number_digits, summary)
+                            import asyncio as _aio
+                            _aio.create_task(flows.ask_consumption_after_delay(to_number_digits, 10))
+                            handled = True
+                        elif btn_id == 'view_consumption':
+                            items = [{'nome': f'Insumo {i}', 'qtd': 10*i, 'unid': 'un'} for i in range(1,11)]
+                            flows.send_consumption_list(to_number_digits, items)
+                            handled = True
+                        elif btn_id == 'view_low_stock':
+                            items = [
+                                {'insumo': 'Mussarela', 'qtd_atual': 3, 'qtd_min': 8, 'unid': 'kg'},
+                                {'insumo': 'Calabresa', 'qtd_atual': 2, 'qtd_min': 6, 'unid': 'kg'},
+                                {'insumo': 'Molho', 'qtd_atual': 5, 'qtd_min': 10, 'unid': 'kg'},
+                                {'insumo': 'Farinha', 'qtd_atual': 20, 'qtd_min': 35, 'unid': 'kg'},
+                                {'insumo': 'Refrigerante Lata', 'qtd_atual': 12, 'qtd_min': 24, 'unid': 'un'},
                             ]
-                        }
-                        flows.send_cmv_analysis(to_number_digits, data)
-                        handled = True
-                    elif btn_id == 'view_cmv_actions':
-                        flows.client.send_text(to_number_digits, 'Ações recomendadas: 1) revisar porcionamento de queijos; 2) ajustar preço das bebidas; 3) auditar perdas na abertura.')
-                        handled = True
+                            flows.send_low_stock_list(to_number_digits, items)
+                            handled = True
+                        elif btn_id == 'make_purchase_list':
+                            flows.client.send_text(to_number_digits, 'Ok! Vou gerar a lista de compras sugerida e te envio em instantes.')
+                            handled = True
+                        elif btn_id == 'view_cmv_analysis':
+                            data = {
+                                'cmv_esperado': 28.0, 'cmv_atual': 32.5, 'desvio_pct': 4.5,
+                                'contribuintes': [
+                                    {'insumo': 'Mussarela', 'impacto_pct': 1.8},
+                                    {'insumo': 'Calabresa', 'impacto_pct': 1.2},
+                                    {'insumo': 'Tomate', 'impacto_pct': 0.9},
+                                ]
+                            }
+                            flows.send_cmv_analysis(to_number_digits, data)
+                            handled = True
+                        elif btn_id == 'view_cmv_actions':
+                            flows.client.send_text(to_number_digits, 'Ações recomendadas: 1) revisar porcionamento de queijos; 2) ajustar preço das bebidas; 3) auditar perdas na abertura.')
+                            handled = True
                 except Exception as _e_btn:
                     print('[ERROR] button handler failed:', repr(_e_btn))
 
