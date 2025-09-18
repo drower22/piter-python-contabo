@@ -14,57 +14,87 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
-        env:
-          REPO_PAT: ${{ secrets.REPO_PAT }}
         with:
-          host: ${{ secrets.DEPLOY_HOST }}       # ex: 89.116.29.187
-          username: ${{ secrets.DEPLOY_USER }}   # ex: root
-          key: ${{ secrets.DEPLOY_SSH_KEY }}     # chave para entrar no servidor
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: 22
           script_stop: true
           command_timeout: 30m
-          script: |
-            set -euo pipefail
+          envs: REPO_PAT
+        env:
+          REPO_PAT: ${{ secrets.REPO_PAT }}
+        script: |
+          set -euo pipefail
 
-            APP_DIR="/opt/piter-python-contabo"
-            REPO_HTTPS="https://x-access-token:${REPO_PAT}@github.com/drower22/piter-python-contabo.git"
+          APP_DIR="/opt/piter-python-contabo"
 
-            echo "--- Preparando diretório ${APP_DIR} ---"
-            sudo mkdir -p "${APP_DIR}"
-            sudo chown -R ${USER}:${USER} "${APP_DIR}" || true
+          echo "--- Preparando diretório ${APP_DIR} ---"
+          sudo mkdir -p "${APP_DIR}"
+          sudo chown -R ${USER}:${USER} "${APP_DIR}" || true
 
-            if [ -d "${APP_DIR}/.git" ]; then
-              echo "--- Atualizando repo existente ---"
-              cd "${APP_DIR}"
+          # Configurar chave SSH para GitHub se não existir
+          echo "--- Configurando acesso ao GitHub ---"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
+          chmod 644 ~/.ssh/known_hosts || true
+
+          # Tentar múltiplas formas de clone/update
+          if [ -d "${APP_DIR}/.git" ]; then
+            echo "--- Atualizando repo existente ---"
+            cd "${APP_DIR}"
+            
+            # Tentar fetch via SSH primeiro, depois HTTPS
+            if git fetch --all 2>/dev/null; then
+              echo "Fetch via SSH OK"
+            elif [ -n "${REPO_PAT:-}" ]; then
+              echo "SSH falhou, tentando HTTPS com PAT..."
+              git remote set-url origin "https://x-access-token:${REPO_PAT}@github.com/drower22/piter-python-contabo.git"
               git fetch --all
-              git reset --hard origin/main
             else
-              echo "--- Clonando repo (HTTPS + PAT) ---"
-              git clone --branch main "${REPO_HTTPS}" "${APP_DIR}"
-              cd "${APP_DIR}"
+              echo "ERRO: Não foi possível fazer fetch. SSH falhou e REPO_PAT não definido."
+              exit 1
             fi
-
-            echo "--- Venv e dependências ---"
-            if [ ! -d .venv ]; then
-              python3 -m venv .venv
-            fi
-            . .venv/bin/activate
-            python -m pip install -U pip
-            if [ -f requirements.txt ]; then
-              pip install -r requirements.txt
+            
+            git reset --hard origin/main
+          else
+            echo "--- Clonando repo ---"
+            
+            # Tentar clone via SSH primeiro
+            if git clone --branch main git@github.com:drower22/piter-python-contabo.git "${APP_DIR}" 2>/dev/null; then
+              echo "Clone via SSH OK"
+            elif [ -n "${REPO_PAT:-}" ]; then
+              echo "SSH falhou, tentando HTTPS com PAT..."
+              git clone --branch main "https://x-access-token:${REPO_PAT}@github.com/drower22/piter-python-contabo.git" "${APP_DIR}"
             else
-              pip install fastapi uvicorn[standard] supabase python-dotenv requests pydantic
+              echo "ERRO: Não foi possível clonar. SSH falhou e REPO_PAT não definido."
+              exit 1
             fi
-            deactivate
+            
+            cd "${APP_DIR}"
+          fi
 
-            echo "--- Reiniciando serviço ---"
-            sudo systemctl daemon-reload
-            sudo systemctl restart piter-api
-            sleep 2
-            sudo systemctl status piter-api --no-pager -n 20 || true
+          echo "--- Venv e dependências ---"
+          if [ ! -d .venv ]; then
+            python3 -m venv .venv
+          fi
+          . .venv/bin/activate
+          python -m pip install -U pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install fastapi uvicorn[standard] supabase python-dotenv requests pydantic
+          fi
+          deactivate
 
-            echo "--- Testando health local ---"
-            curl -sS http://127.0.0.1:8000/health || true
+          echo "--- Reiniciando serviço ---"
+          sudo systemctl daemon-reload
+          sudo systemctl restart piter-api
+          sleep 2
+          sudo systemctl status piter-api --no-pager -n 20 || true
 
-            echo "--- Recarregando Nginx ---"
-            sudo nginx -t && sudo systemctl reload nginx || true
+          echo "--- Testando health local ---"
+          curl -sS http://127.0.0.1:8000/health || true
+
+          echo "--- Recarregando Nginx ---"
+          sudo nginx -t && sudo systemctl reload nginx || true
