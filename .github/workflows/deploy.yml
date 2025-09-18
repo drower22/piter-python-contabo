@@ -1,75 +1,57 @@
-name: Deploy Piter to Contabo
+- name: Deploy via SSH
+  uses: appleboy/ssh-action@v1.0.3
+  env:
+    REPO_PAT: ${{ secrets.REPO_PAT }}
+  with:
+    host: ${{ secrets.DEPLOY_HOST }}       # ex: 89.116.29.187
+    username: ${{ secrets.DEPLOY_USER }}   # ex: root
+    key: ${{ secrets.DEPLOY_SSH_KEY }}     # chave para entrar no servidor
+    port: 22
+    script_stop: true
+    command_timeout: 30m
+    script: |
+      set -euo pipefail
 
-on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch: {}
+      APP_DIR="/opt/piter-python-contabo"
+      REPO_HTTPS="https://x-access-token:${REPO_PAT}@github.com/drower22/piter-python-contabo.git"
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout (for logs/reference)
-        uses: actions/checkout@v4
+      echo "--- Preparando diretório ${APP_DIR} ---"
+      sudo mkdir -p "${APP_DIR}"
+      # Se não for root, ajuste permissões (não é crítico se for root)
+      sudo chown -R ${USER}:${USER} "${APP_DIR}" || true
 
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}       # ex: 89.116.29.187
-          username: ${{ secrets.DEPLOY_USER }}   # ex: root
-          key: ${{ secrets.DEPLOY_SSH_KEY }}     # chave para entrar no servidor
-          port: 22
-          script_stop: true
-          command_timeout: 30m
-          script: |
-            set -euo pipefail
+      if [ -d "${APP_DIR}/.git" ]; then
+        echo "--- Atualizando repo existente ---"
+        cd "${APP_DIR}"
+        git fetch --all
+        git reset --hard origin/main
+      else
+        echo "--- Clonando repo (HTTPS + PAT) ---"
+        git clone --branch main "${REPO_HTTPS}" "${APP_DIR}"
+        cd "${APP_DIR}"
+      fi
 
-            APP_DIR="/opt/piter-python-contabo"
-            # Usa o alias 'github-piter' configurado no servidor (IdentityFile ~/.ssh/github_piter_new)
-            REPO_SSH="git@github-piter:drower22/piter-python-contabo.git"
+      echo "--- Venv e dependências ---"
+      if [ ! -d .venv ]; then
+        python3 -m venv .venv
+      fi
+      . .venv/bin/activate
+      python -m pip install -U pip
+      if [ -f requirements.txt ]; then
+        pip install -r requirements.txt
+      else
+        pip install fastapi uvicorn[standard] supabase python-dotenv requests pydantic
+      fi
+      deactivate
 
-            echo "--- Preparando diretório ${APP_DIR} ---"
-            sudo mkdir -p "${APP_DIR}"
-            # Ajuste de owner só se necessário (se estiver logando como root, não faz diferença)
-            sudo chown -R ${USER}:${USER} "${APP_DIR}" || true
+      echo "--- Reiniciando serviço ---"
+      sudo systemctl daemon-reload
+      sudo systemctl restart piter-api
+      sleep 2
+      sudo systemctl status piter-api --no-pager -n 20 || true
 
-            echo "--- Garantindo known_hosts para github.com ---"
-            mkdir -p ~/.ssh && chmod 700 ~/.ssh
-            ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null || true
-            chmod 644 ~/.ssh/known_hosts || true
+      echo "--- Testando health local ---"
+      curl -sS http://127.0.0.1:8000/health || true
 
-            if [ -d "${APP_DIR}/.git" ]; then
-              echo "--- Atualizando repo existente ---"
-              cd "${APP_DIR}"
-              git fetch --all
-              git reset --hard origin/main
-            else
-              echo "--- Clonando repo (SSH + host alias) ---"
-              git clone --branch main "${REPO_SSH}" "${APP_DIR}"
-              cd "${APP_DIR}"
-            fi
-
-            echo "--- Venv e dependências ---"
-            if [ ! -d .venv ]; then
-              python3 -m venv .venv
-            fi
-            . .venv/bin/activate
-            python -m pip install -U pip
-            if [ -f requirements.txt ]; then
-              pip install -r requirements.txt
-            else
-              pip install fastapi uvicorn[standard] supabase python-dotenv requests pydantic
-            fi
-            deactivate
-
-            echo "--- Reiniciando serviço ---"
-            sudo systemctl daemon-reload
-            sudo systemctl restart piter-api
-            sleep 2
-            sudo systemctl status piter-api --no-pager -n 20 || true
-
-            echo "--- Testando health local ---"
-            curl -sS http://127.0.0.1:8000/health || true
-
-            echo "--- Recarregando Nginx ---"
-            sudo nginx -t && sudo systemctl reload nginx || true
+      echo "--- Recarregando Nginx ---"
+      sudo nginx -t && sudo systemctl reload nginx || true
