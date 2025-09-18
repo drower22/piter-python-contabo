@@ -1,3 +1,4 @@
+from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 import asyncio
@@ -9,7 +10,7 @@ router = APIRouter(tags=["Logs"])
 # ==============================
 # In-process async logging queue
 # ==============================
-_LOG_QUEUE: "asyncio.Queue[str]" | None = None
+_LOG_QUEUE: asyncio.Queue[str] | None = None
 
 
 class _QueueHandler(logging.Handler):
