@@ -21,7 +21,8 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: 22
-          script_stop: true
+          # Permite que comandos falhem sem abortar a sessão, para o fallback funcionar
+          script_stop: false
           command_timeout: 30m
           envs: REPO_PAT
           script: |
@@ -42,10 +43,8 @@ jobs:
             chmod 644 ~/.ssh/known_hosts || true
 
             echo "--- Diagnóstico rápido de rede ---"
-            set +e
-            ping -c 1 github.com
+            ping -c 1 github.com || true
             nslookup github.com || true
-            set -e
 
             echo "--- Garantindo que APP_DIR é um repo válido ---"
             if [ -d "${APP_DIR}/.git" ]; then
@@ -56,49 +55,45 @@ jobs:
                 rm -rf "${APP_DIR:?}/"* "${APP_DIR}/."* 2>/dev/null || true
               fi
               echo "Clonando repo inicial..."
-              set +e
-              git clone --branch main "${REPO_SSH}" "${APP_DIR}"
-              CLONE_RC=$?
-              set -e
-              if [ $CLONE_RC -ne 0 ]; then
-                if [ -n "${REPO_PAT:-}" ]; then
-                  echo "SSH falhou, tentando HTTPS com PAT..."
-                  git clone --branch main "${REPO_HTTPS}" "${APP_DIR}"
-                else
-                  echo "ERRO: Não foi possível clonar (SSH falhou e REPO_PAT não definido)."
-                  exit 1
-                fi
+              if git clone --branch main "${REPO_SSH}" "${APP_DIR}"; then
+                echo "Clone via SSH OK"
+              elif [ -n "${REPO_PAT:-}" ]; then
+                echo "SSH falhou, tentando HTTPS com PAT..."
+                git clone --branch main "${REPO_HTTPS}" "${APP_DIR}" || exit 1
+              else
+                echo "ERRO: Não foi possível clonar (SSH falhou e REPO_PAT não definido)."
+                exit 1
               fi
             fi
 
             cd "${APP_DIR}"
 
-            echo "--- Sincronizando repo ---"
-            set +e
-            git fetch --all
-            FRC=$?
-            set -e
+            echo "--- Forçando remote.origin para host válido antes do primeiro fetch ---"
+            # Se a URL atual não contiver github.com, normalize para SSH
+            if ! git remote get-url origin | grep -q 'github.com'; then
+              git remote set-url origin "${REPO_SSH}"
+            fi
+            git remote -v
 
-            if [ $FRC -ne 0 ]; then
-              echo "Fetch via SSH falhou (RC=$FRC). Tentando configurar HTTPS com PAT..."
+            echo "--- Sincronizando repo ---"
+            if git fetch --all; then
+              echo "Fetch via SSH OK"
+            else
+              echo "Fetch via SSH falhou. Tentando configurar HTTPS com PAT..."
               if [ -n "${REPO_PAT:-}" ]; then
                 git remote set-url origin "${REPO_HTTPS}"
                 git remote -v
-                set +e
-                git fetch --all
-                FRC2=$?
-                set -e
-                if [ $FRC2 -ne 0 ]; then
-                  echo "Fetch via HTTPS também falhou (RC=$FRC2). Forçando re-clone limpo via HTTPS..."
+                if git fetch --all; then
+                  echo "Fetch via HTTPS OK"
+                else
+                  echo "Fetch via HTTPS falhou. Forçando re-clone limpo via HTTPS..."
                   cd /
                   rm -rf "${APP_DIR}"
                   mkdir -p "${APP_DIR}"
-                  set +e
-                  git clone --branch main "${REPO_HTTPS}" "${APP_DIR}"
-                  CLNRC=$?
-                  set -e
-                  if [ $CLNRC -ne 0 ]; then
-                    echo "ERRO: Re-clone via HTTPS falhou (RC=$CLNRC)."
+                  if git clone --branch main "${REPO_HTTPS}" "${APP_DIR}"; then
+                    echo "Re-clone via HTTPS OK"
+                  else
+                    echo "ERRO: Re-clone via HTTPS falhou."
                     exit 1
                   fi
                   cd "${APP_DIR}"
