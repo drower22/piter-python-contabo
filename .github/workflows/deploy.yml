@@ -14,6 +14,8 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          REPO_PAT: ${{ secrets.REPO_PAT }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -22,9 +24,7 @@ jobs:
           script_stop: true
           command_timeout: 30m
           envs: REPO_PAT
-        env:
-          REPO_PAT: ${{ secrets.REPO_PAT }}
-        script: |
+          script: |
           set -euo pipefail
 
           APP_DIR="/opt/piter-python-contabo"
