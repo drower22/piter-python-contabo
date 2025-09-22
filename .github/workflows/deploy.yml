@@ -15,13 +15,13 @@ jobs:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         env:
-          REPO_PAT: ${{ secrets.REPO_PAT }}
+          REPO_PAT: ${{ secrets.REPO_PAT }} # opcional
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: 22
-          # Permite que comandos falhem sem abortar a sessão, para o fallback funcionar
+          # Mantemos false para permitir fallback dentro do script
           script_stop: false
           command_timeout: 30m
           envs: REPO_PAT
@@ -30,17 +30,21 @@ jobs:
             set -x
 
             APP_DIR="/opt/piter-python-contabo"
-            REPO_SSH="git@github.com:drower22/piter-python-contabo.git"
-            REPO_HTTPS="https://x-access-token:${REPO_PAT}@github.com/drower22/piter-python-contabo.git"
+
+            # URLs do repo
+            REPO_HTTPS_PUBLIC="https://github.com/drower22/piter-python-contabo.git"
+            REPO_HTTPS_TOKENED="https://x-access-token:${REPO_PAT}@github.com/drower22/piter-python-contabo.git"
+
+            # Escolhe URL HTTPS de trabalho (com PAT se existir, senão pública)
+            if [ -n "${REPO_PAT:-}" ]; then
+              REPO_URL="${REPO_HTTPS_TOKENED}"
+            else
+              REPO_URL="${REPO_HTTPS_PUBLIC}"
+            fi
 
             echo "--- Preparando diretório ${APP_DIR} ---"
             sudo mkdir -p "${APP_DIR}"
             sudo chown -R ${USER}:${USER} "${APP_DIR}" || true
-
-            echo "--- Configurando acesso ao GitHub ---"
-            mkdir -p ~/.ssh && chmod 700 ~/.ssh
-            ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts || true
-            chmod 644 ~/.ssh/known_hosts || true
 
             echo "--- Diagnóstico rápido de rede ---"
             ping -c 1 github.com || true
@@ -54,54 +58,31 @@ jobs:
                 echo "APP_DIR existe mas não é repo git. Limpando para reclonar..."
                 rm -rf "${APP_DIR:?}/"* "${APP_DIR}/."* 2>/dev/null || true
               fi
-              echo "Clonando repo inicial..."
-              if git clone --branch main "${REPO_SSH}" "${APP_DIR}"; then
-                echo "Clone via SSH OK"
-              elif [ -n "${REPO_PAT:-}" ]; then
-                echo "SSH falhou, tentando HTTPS com PAT..."
-                git clone --branch main "${REPO_HTTPS}" "${APP_DIR}" || exit 1
-              else
-                echo "ERRO: Não foi possível clonar (SSH falhou e REPO_PAT não definido)."
-                exit 1
-              fi
+              echo "Clonando repo inicial via HTTPS..."
+              git clone --branch main "${REPO_URL}" "${APP_DIR}"
             fi
 
             cd "${APP_DIR}"
 
-            echo "--- Forçando remote.origin para host válido antes do primeiro fetch ---"
-            # Se a URL atual não contiver github.com, normalize para SSH
-            if ! git remote get-url origin | grep -q 'github.com'; then
-              git remote set-url origin "${REPO_SSH}"
+            echo "--- Forçando remote.origin para HTTPS válido ---"
+            if git remote get-url origin >/dev/null 2>&1; then
+              git remote set-url origin "${REPO_URL}"
+            else
+              git remote add origin "${REPO_URL}"
             fi
             git remote -v
 
-            echo "--- Sincronizando repo ---"
+            echo "--- Sincronizando repo (HTTPS) ---"
+            # Tenta fetch; se falhar, re-clona como último recurso
             if git fetch --all; then
-              echo "Fetch via SSH OK"
+              echo "Fetch via HTTPS OK"
             else
-              echo "Fetch via SSH falhou. Tentando configurar HTTPS com PAT..."
-              if [ -n "${REPO_PAT:-}" ]; then
-                git remote set-url origin "${REPO_HTTPS}"
-                git remote -v
-                if git fetch --all; then
-                  echo "Fetch via HTTPS OK"
-                else
-                  echo "Fetch via HTTPS falhou. Forçando re-clone limpo via HTTPS..."
-                  cd /
-                  rm -rf "${APP_DIR}"
-                  mkdir -p "${APP_DIR}"
-                  if git clone --branch main "${REPO_HTTPS}" "${APP_DIR}"; then
-                    echo "Re-clone via HTTPS OK"
-                  else
-                    echo "ERRO: Re-clone via HTTPS falhou."
-                    exit 1
-                  fi
-                  cd "${APP_DIR}"
-                fi
-              else
-                echo "ERRO: REPO_PAT não definido, não é possível fallback para HTTPS."
-                exit 1
-              fi
+              echo "Fetch via HTTPS falhou. Forçando re-clone limpo via HTTPS..."
+              cd /
+              rm -rf "${APP_DIR}"
+              mkdir -p "${APP_DIR}"
+              git clone --branch main "${REPO_URL}" "${APP_DIR}"
+              cd "${APP_DIR}"
             fi
 
             echo "--- Resetando para origin/main ---"
