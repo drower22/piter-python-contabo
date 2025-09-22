@@ -53,7 +53,7 @@ jobs:
             else
               if [ -d "${APP_DIR}" ] && [ "$(ls -A "${APP_DIR}" | wc -l)" -gt 0 ]; then
                 echo "APP_DIR existe mas não é repo git. Limpando para reclonar..."
-                rm -rf "${APP_DIR:?}/"* "${APP_DIR}/.*" 2>/dev/null || true
+                rm -rf "${APP_DIR:?}/"* "${APP_DIR}/."* 2>/dev/null || true
               fi
               echo "Clonando repo inicial..."
               set +e
@@ -74,7 +74,6 @@ jobs:
             cd "${APP_DIR}"
 
             echo "--- Sincronizando repo ---"
-            # 1) Tenta fetch via SSH, sem abortar o script
             set +e
             git fetch --all
             FRC=$?
@@ -133,21 +132,7 @@ jobs:
             sudo systemctl status piter-api --no-pager -n 50 || true
 
             echo "--- Testando health local ---"
-            curl -sv [http://127.0.0.1](http://127.0.0.1):8000/health || true
+            curl -sv http://127.0.0.1:8000/health || true
 
             echo "--- Recarregando Nginx ---"
             sudo nginx -t && sudo systemctl reload nginx || true
-
-Como isso te ajuda a debugar
-- O script não vai mais abortar na primeira falha de git fetch; ele faz fallback para HTTPS, e se necessário, re-clone.
-- Mantém logs detalhados (set -x) e mostra o código de saída de cada tentativa.
-- Faz ping/nslookup em github.com para confirmar se o problema é DNS/rota no servidor Contabo.
-
-Se falhar novamente
-- Me envie as linhas de erro novas (principalmente da seção “Sincronizando repo” e do ping/nslookup).
-- Se o ping/nslookup falhar no Contabo, pode haver:
-  - Problema de DNS no servidor (resolver fora do ar).
-  - Bloqueio temporário de saída para github.com (firewall).
-  - Intermitência de rede.
-
-Com esses logs, consigo cravar a causa (rede/DNS) e te passar os comandos para corrigir no Contabo (ex.: ajustar /etc/resolv.conf, systemd-resolved, regras de firewall/ufw, etc.).
