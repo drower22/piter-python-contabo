@@ -30,15 +30,21 @@ class WhatsAppFlowService:
         self.demo_flows = DemoFlowsService(self.wa_client) # Injeta o cliente
 
     def _get_conversation_state(self, conversation_id: str) -> Tuple[str, dict]:
-        """Busca o estado atual da conversa no banco de dados."""
-        resp = self.sb.table('wa_state').select('step, context').eq('conversation_id', conversation_id).maybe_single().execute()
+        """Busca o estado atual da conversa no banco de dados (wa_conversation_state)."""
+        resp = self.sb.table('wa_conversation_state').select('state_key, data').eq('conversation_id', conversation_id).maybe_single().execute()
         data = resp.data or {}
-        return data.get('step') or 'welcome', (data.get('context') or {})
+        return data.get('state_key') or 'welcome', (data.get('data') or {})
 
     def _set_conversation_state(self, conversation_id: str, step: str, context: dict) -> None:
-        """Salva o novo estado da conversa no banco de dados."""
-        payload = {"conversation_id": conversation_id, "step": step, "context": context}
-        self.sb.table('wa_state').upsert(payload, on_conflict='conversation_id').execute()
+        """Salva o novo estado da conversa no banco (RPC wa_set_conversation_state)."""
+        try:
+            self.sb.rpc('wa_set_conversation_state', {
+                'p_conversation_id': str(conversation_id),
+                'p_state_key': str(step),
+                'p_data': context or None,
+            }).execute()
+        except Exception as e:
+            print(f"[WARN] Failed to set conversation state via RPC: {repr(e)}")
 
     def _persist_button_click(self, conversation_id: str, contact_id: str, msg: ParsedWhatsAppMessage):
         """Salva o evento de clique de botão para fins de análise."""
@@ -50,6 +56,7 @@ class WhatsAppFlowService:
                 'button_id': msg.button_id,
                 'button_title': msg.button_title,
                 'raw_payload': msg.raw_message_payload,
+                'clicked_at': 'now()',
             }).execute()
         except Exception as e:
             print(f'[WARN] Failed to persist button click: {repr(e)}')
@@ -127,15 +134,11 @@ class WhatsAppFlowService:
             print(f'[WARN] Next buttons send failed: {repr(e)}')
 
     def _apply_next_state(self, conversation_id: str, catalog_obj: Dict[str, Any]):
-        """Aplica o próximo estado de conversa, se definido no catálogo."""
+        """Aplica o próximo estado de conversa, se definido no catálogo (direto na tabela)."""
         try:
             next_state = (catalog_obj or {}).get('next_state')
             if next_state:
-                self.sb.rpc('wa_set_conversation_state', {
-                    'p_conversation_id': str(conversation_id),
-                    'p_state_key': str(next_state),
-                    'p_data': None,
-                }).execute()
+                self._set_conversation_state(conversation_id, str(next_state), {})
         except Exception as e:
             print(f'[WARN] Next state update failed: {repr(e)}')
 
@@ -166,7 +169,57 @@ class WhatsAppFlowService:
                 self._send_next_buttons(conversation_id, to_number, cat)
                 self._apply_next_state(conversation_id, cat)
                 return True
-            # ... (outros tipos de resposta do catálogo como 'template', 'webhook')
+            elif rtype == 'webhook':
+                # Executa um webhook externo definido em meta.webhook_url
+                try:
+                    import requests
+                    meta = (cat.get('metadata') or cat.get('meta') or {})
+                    if isinstance(meta, str):
+                        try:
+                            meta = json.loads(meta)
+                        except json.JSONDecodeError:
+                            meta = {}
+                    url = (meta.get('webhook_url') or '').strip()
+                    method = (meta.get('method') or 'POST').upper()
+                    headers = meta.get('headers') or {}
+                    payload = {
+                        'conversation_id': conversation_id,
+                        'contact_id': contact_id,
+                        'to': to_number,
+                        'button_id': btn_id,
+                        'state': self._get_conversation_state(conversation_id)[0],
+                    }
+                    resp = None
+                    if url:
+                        if method == 'GET':
+                            resp = requests.get(url, params=payload, headers=headers, timeout=10)
+                        else:
+                            resp = requests.post(url, json=payload, headers=headers, timeout=15)
+                    if resp is not None:
+                        try:
+                            j = resp.json()
+                        except Exception:
+                            j = {}
+                        # Espera-se que o webhook retorne { text?, next_buttons?, next_state? }
+                        txt = (j.get('text') or cat.get('response_text') or '').strip()
+                        if txt:
+                            self.wa_client.send_text(to_number, txt)
+                            self._persist_outbound_message(conversation_id, 'text', {"text": {"body": txt}})
+                        # Permite que o webhook defina próximos botões/estado, senão usa do catálogo
+                        override = {
+                            'next_buttons': j.get('next_buttons', cat.get('next_buttons')),
+                            'next_state': j.get('next_state', cat.get('next_state')),
+                            'response_text': txt or cat.get('response_text'),
+                        }
+                        self._send_next_buttons(conversation_id, to_number, override)
+                        self._apply_next_state(conversation_id, override)
+                        return True
+                except Exception as e:
+                    print(f'[WARN] Webhook execution failed: {repr(e)}')
+                # Se falhar, ainda tenta aplicar next do catálogo
+                self._send_next_buttons(conversation_id, to_number, cat)
+                self._apply_next_state(conversation_id, cat)
+                return True
             elif rtype in ('none', 'noop'):
                 self._send_next_buttons(conversation_id, to_number, cat)
                 self._apply_next_state(conversation_id, cat)

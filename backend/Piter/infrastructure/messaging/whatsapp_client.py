@@ -61,6 +61,29 @@ class WhatsAppClient:
         response.raise_for_status()
         return response.json()
 
+    def list_message_templates(self, waba_id: str, limit: int = 100, after: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Lista templates aprovados da Meta para o WABA informado.
+
+        Args:
+            waba_id: ID do WhatsApp Business Account.
+            limit: Quantidade por página (default 100).
+            after: Cursor para próxima página, se houver.
+
+        Returns:
+            JSON da API Graph com dados e paginação.
+        """
+        if not waba_id:
+            raise ValueError("WABA ID é obrigatório (WHATSAPP_WABA_ID)")
+        base = f"https://graph.facebook.com/{self.graph_version}/{waba_id}/message_templates"
+        params = {"limit": limit}
+        if after:
+            params["after"] = after
+        headers = {"Authorization": f"Bearer {self.token}"}
+        resp = requests.get(base, headers=headers, params=params, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
     def send_template(self, to: str, template: str, language: str = "pt_BR", components: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         """
         Envia uma mensagem baseada em um template pré-aprovado.

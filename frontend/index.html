@@ -65,6 +65,25 @@
         </section>
 
         <section class="card span-6">
+          <h2>Templates Meta (Abertura)</h2>
+          <p class="muted">Lista de templates aprovados na Meta (WABA).</p>
+          <div class="row">
+            <input id="adminToken2" placeholder="x-admin-token (opcional)" />
+            <button class="btn" id="btnLoadMeta">Carregar</button>
+          </div>
+          <div id="metaTemplates" style="margin-top:10px; max-height:220px; overflow:auto;"></div>
+        </section>
+
+        <section class="card span-6">
+          <h2>Templates Locais (Supabase)</h2>
+          <p class="muted">Templates pós-conversa definidos no catálogo local.</p>
+          <div class="row">
+            <button class="btn" id="btnLoadLocal">Carregar</button>
+          </div>
+          <div id="localTemplates" style="margin-top:10px; max-height:220px; overflow:auto;"></div>
+        </section>
+
+        <section class="card span-6">
           <h2>Enviar Template WhatsApp</h2>
           <p class="muted">Teste rápido do endpoint de envio de template do WhatsApp.</p>
           <label>To (ex: +5511999999999)</label>

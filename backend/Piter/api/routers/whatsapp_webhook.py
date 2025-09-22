@@ -4,6 +4,8 @@ from fastapi.responses import PlainTextResponse, JSONResponse
 from ...infrastructure.database.supabase_client import get_supabase
 from ...services.message_parser import WhatsAppMessageParser
 from ...services.whatsapp_flow import WhatsAppFlowService
+from ...infrastructure.messaging.whatsapp_client import WhatsAppClient
+from ...services.flows import DemoFlowsService
 from pydantic import BaseModel
 
 router = APIRouter(tags=["WhatsApp"], prefix="/_webhooks/whatsapp")
@@ -174,11 +176,12 @@ async def send_template(
 ):
     try:
         print(f"[DEBUG] Request received: {await request.body()}")
-        
-        # Verificação do token admin
-        admin_token = os.getenv("ADMIN_TOKEN")
-        if admin_token and request.headers.get("x-admin-token") != admin_token:
-            return JSONResponse(status_code=403, content={"error": "forbidden"})
+
+        # Nota: endpoint público para facilitar testes e UI.
+        # Se desejar restringir, reative o check abaixo.
+        # admin_token = os.getenv("ADMIN_TOKEN")
+        # if admin_token and request.headers.get("x-admin-token") != admin_token:
+        #     return JSONResponse(status_code=403, content={"error": "forbidden"})
 
         # Validação simplificada
         if not data.template_name or not data.lang_code:
@@ -270,6 +273,76 @@ async def send_template(
             status_code=500, 
             content={"error": str(e), "traceback": traceback.format_exc()}
         )
+
+
+# ========================
+# Admin: listar templates
+# ========================
+@router.get("/_admin/meta/templates")
+async def list_meta_templates(request: Request, limit: int = 100, after: str | None = None):
+    # Público para facilitar consumo pelo frontend
+
+    try:
+        import requests as _rq
+        waba_id = os.getenv("WHATSAPP_WABA_ID") or ""
+        token = os.getenv("WHATSAPP_TOKEN") or ""
+        if not waba_id or not token:
+            return JSONResponse(status_code=500, content={"error": "missing_waba_or_token"})
+        url = f"https://graph.facebook.com/{os.getenv('WHATSAPP_GRAPH_VERSION','v19.0')}/{waba_id}/message_templates"
+        params = {"limit": limit}
+        if after:
+            params["after"] = after
+        headers = {"Authorization": f"Bearer {token}"}
+        resp = _rq.get(url, headers=headers, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+
+        # Normaliza para um formato simples {name, language, status, category}
+        items = []
+        for t in (data.get("data") or []):
+            items.append({
+                "name": t.get("name"),
+                "language": t.get("language"),
+                "status": t.get("status"),
+                "category": t.get("category"),
+            })
+        return {"items": items, "paging": data.get("paging")}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.get("/_admin/local/templates")
+async def list_local_templates(request: Request):
+    """
+    Lista templates locais definidos no Supabase.
+    Vamos usar a tabela wa_buttons_catalog, lendo metadados de template de meta (jsonb):
+      meta.template_name, meta.lang_code, meta.components (opcional)
+    Apenas entradas com meta.template_name serão consideradas.
+    """
+    admin_token = os.getenv("ADMIN_TOKEN")
+    if admin_token and request.headers.get("x-admin-token") != admin_token:
+        return JSONResponse(status_code=403, content={"error": "forbidden"})
+
+    sb = get_supabase()
+    q = (
+        sb.table('wa_buttons_catalog')
+        .select('id,title,response_type,response_text,next_state,next_buttons,template_name,template_lang,template_vars,metadata')
+        .eq('active', True)
+        .execute()
+    )
+    items = []
+    for r in (q.data or []):
+        tname = (r.get('template_name') or '').strip()
+        if not tname:
+            continue
+        items.append({
+            'id': r.get('id'),
+            'title': r.get('title'),
+            'template_name': tname,
+            'lang_code': (r.get('template_lang') or 'pt_BR'),
+            'components': r.get('template_vars') or [],
+        })
+    return {"items": items}
 
 
 # ========================

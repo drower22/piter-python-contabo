@@ -12,6 +12,12 @@ const btnTriggerCMV = document.getElementById('btnTriggerCMV');
 const btnSimSummary = document.getElementById('btnSimSummary');
 const btnSimLowStock = document.getElementById('btnSimLowStock');
 const btnSimCMV = document.getElementById('btnSimCMV');
+// New template UI elements
+const btnLoadMeta = document.getElementById('btnLoadMeta');
+const btnLoadLocal = document.getElementById('btnLoadLocal');
+const metaTemplatesEl = document.getElementById('metaTemplates');
+const localTemplatesEl = document.getElementById('localTemplates');
+const adminToken2El = document.getElementById('adminToken2');
 
 const label = document.getElementById('apiBaseLabel');
 if (label) label.textContent = API_BASE;
@@ -31,6 +37,90 @@ if (copyBtn) {
       })
       .catch(err => console.error('Failed to copy:', err));
   });
+}
+
+// ===============
+// Templates: Utils
+// ===============
+function renderTemplatesList(el, items, sourceLabel) {
+  if (!el) return;
+  if (!items || !items.length) {
+    el.innerHTML = '<div class="muted">Nenhum template encontrado.</div>';
+    return;
+  }
+  const html = items.map((t) => {
+    const tname = t.name || t.template_name;
+    const lang = t.language || t.lang_code || 'pt_BR';
+    const status = t.status ? `<span class="badge">${t.status}</span>` : '';
+    const category = t.category ? `<span class="badge">${t.category}</span>` : '';
+    return `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; border:1px solid var(--border); border-radius:10px; padding:8px; margin:6px 0;">
+        <div style="font-size:13px">
+          <div><strong>${tname}</strong> <span class="badge">${lang}</span> ${status} ${category}</div>
+          <div class="muted">${sourceLabel}</div>
+        </div>
+        <button class="btn" data-tname="${tname}" data-lang="${lang}">Enviar</button>
+      </div>`;
+  }).join('');
+  el.innerHTML = html;
+  el.querySelectorAll('button[data-tname]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tn = btn.getAttribute('data-tname');
+      const lg = btn.getAttribute('data-lang');
+      sendTemplateQuick(tn, lg);
+    });
+  });
+}
+
+async function sendTemplateQuick(templateName, langCode, toOverride) {
+  const to = (toOverride || toTemplateEl?.value || '').trim();
+  if (!to || !templateName || !langCode) {
+    log('[send-quick][warn] preencha To/Template/Lang');
+    return;
+  }
+  try {
+    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/send-template`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ to, template_name: templateName, lang_code: langCode, variables: [] })
+    });
+    const data = await resp.json().catch(() => ({}));
+    log('[send-quick]', templateName, langCode, resp.status, data);
+    if (toTriggerEl && to) toTriggerEl.value = to;
+  } catch (e) {
+    log('[send-quick][error]', e.message || e);
+  }
+}
+
+async function loadMetaTemplates() {
+  try {
+    const headers = {};
+    const tok = (adminToken2El?.value || '').trim();
+    if (tok) headers['x-admin-token'] = tok;
+    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/meta/templates?limit=100`, { headers });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${JSON.stringify(data)}`);
+    renderTemplatesList(metaTemplatesEl, data.items || [], 'Meta');
+    log('[meta-templates]', resp.status, (data.items||[]).length);
+  } catch (e) {
+    log('[meta-templates][error]', e.message || e);
+  }
+}
+
+async function loadLocalTemplates() {
+  try {
+    const headers = {};
+    const tok = (adminToken2El?.value || '').trim();
+    if (tok) headers['x-admin-token'] = tok;
+    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/local/templates`, { headers });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${JSON.stringify(data)}`);
+    const items = (data.items||[]).map(x => ({ name: x.template_name, language: x.lang_code }));
+    renderTemplatesList(localTemplatesEl, items, 'Local');
+    log('[local-templates]', resp.status, (items||[]).length);
+  } catch (e) {
+    log('[local-templates][error]', e.message || e);
+  }
 }
 
 function log(...args) {
@@ -221,6 +311,8 @@ if (btnTriggerCMV) btnTriggerCMV.addEventListener('click', () => triggerFlow('cm
 if (btnSimSummary) btnSimSummary.addEventListener('click', () => simulateClick('view_summary'));
 if (btnSimLowStock) btnSimLowStock.addEventListener('click', () => simulateClick('view_low_stock'));
 if (btnSimCMV) btnSimCMV.addEventListener('click', () => simulateClick('view_cmv_analysis'));
+if (btnLoadMeta) btnLoadMeta.addEventListener('click', loadMetaTemplates);
+if (btnLoadLocal) btnLoadLocal.addEventListener('click', loadLocalTemplates);
 
 // Inicializa
 loadSupabaseCfg();
