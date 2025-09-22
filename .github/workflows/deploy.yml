@@ -14,7 +14,6 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
-        # Expose REPO_PAT to the remote shell via envs
         env:
           REPO_PAT: ${{ secrets.REPO_PAT }}
         with:
@@ -42,6 +41,12 @@ jobs:
             ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts || true
             chmod 644 ~/.ssh/known_hosts || true
 
+            echo "--- Diagnóstico rápido de rede ---"
+            set +e
+            ping -c 1 github.com
+            nslookup github.com || true
+            set -e
+
             echo "--- Garantindo que APP_DIR é um repo válido ---"
             if [ -d "${APP_DIR}/.git" ]; then
               echo "Diretório possui .git"
@@ -51,41 +56,50 @@ jobs:
                 rm -rf "${APP_DIR:?}/"* "${APP_DIR}/.*" 2>/dev/null || true
               fi
               echo "Clonando repo inicial..."
-              if git clone --branch main "${REPO_SSH}" "${APP_DIR}"; then
-                echo "Clone via SSH OK"
-              elif [ -n "${REPO_PAT:-}" ]; then
-                echo "SSH falhou, tentando HTTPS com PAT..."
-                git clone --branch main "${REPO_HTTPS}" "${APP_DIR}"
-              else
-                echo "ERRO: Não foi possível clonar (SSH falhou e REPO_PAT não definido)."
-                exit 1
+              set +e
+              git clone --branch main "${REPO_SSH}" "${APP_DIR}"
+              CLONE_RC=$?
+              set -e
+              if [ $CLONE_RC -ne 0 ]; then
+                if [ -n "${REPO_PAT:-}" ]; then
+                  echo "SSH falhou, tentando HTTPS com PAT..."
+                  git clone --branch main "${REPO_HTTPS}" "${APP_DIR}"
+                else
+                  echo "ERRO: Não foi possível clonar (SSH falhou e REPO_PAT não definido)."
+                  exit 1
+                fi
               fi
             fi
 
             cd "${APP_DIR}"
 
             echo "--- Sincronizando repo ---"
-            # Tenta fetch via SSH
-            if git fetch --all; then
-              echo "Fetch via SSH OK"
-            else
-              echo "Fetch via SSH falhou. Tentando configurar HTTPS com PAT..."
+            # 1) Tenta fetch via SSH, sem abortar o script
+            set +e
+            git fetch --all
+            FRC=$?
+            set -e
+
+            if [ $FRC -ne 0 ]; then
+              echo "Fetch via SSH falhou (RC=$FRC). Tentando configurar HTTPS com PAT..."
               if [ -n "${REPO_PAT:-}" ]; then
                 git remote set-url origin "${REPO_HTTPS}"
-                # Mostrar remotes p/ debug
                 git remote -v
-                if git fetch --all; then
-                  echo "Fetch via HTTPS OK"
-                else
-                  echo "Fetch via HTTPS falhou. Forçando re-clone limpo..."
+                set +e
+                git fetch --all
+                FRC2=$?
+                set -e
+                if [ $FRC2 -ne 0 ]; then
+                  echo "Fetch via HTTPS também falhou (RC=$FRC2). Forçando re-clone limpo via HTTPS..."
                   cd /
                   rm -rf "${APP_DIR}"
                   mkdir -p "${APP_DIR}"
-                  cd /
-                  if git clone --branch main "${REPO_HTTPS}" "${APP_DIR}"; then
-                    echo "Re-clone via HTTPS OK"
-                  else
-                    echo "ERRO: Re-clone via HTTPS falhou."
+                  set +e
+                  git clone --branch main "${REPO_HTTPS}" "${APP_DIR}"
+                  CLNRC=$?
+                  set -e
+                  if [ $CLNRC -ne 0 ]; then
+                    echo "ERRO: Re-clone via HTTPS falhou (RC=$CLNRC)."
                     exit 1
                   fi
                   cd "${APP_DIR}"
@@ -119,7 +133,21 @@ jobs:
             sudo systemctl status piter-api --no-pager -n 50 || true
 
             echo "--- Testando health local ---"
-            curl -sv http://127.0.0.1:8000/health || true
+            curl -sv [http://127.0.0.1](http://127.0.0.1):8000/health || true
 
             echo "--- Recarregando Nginx ---"
             sudo nginx -t && sudo systemctl reload nginx || true
+
+Como isso te ajuda a debugar
+- O script não vai mais abortar na primeira falha de git fetch; ele faz fallback para HTTPS, e se necessário, re-clone.
+- Mantém logs detalhados (set -x) e mostra o código de saída de cada tentativa.
+- Faz ping/nslookup em github.com para confirmar se o problema é DNS/rota no servidor Contabo.
+
+Se falhar novamente
+- Me envie as linhas de erro novas (principalmente da seção “Sincronizando repo” e do ping/nslookup).
+- Se o ping/nslookup falhar no Contabo, pode haver:
+  - Problema de DNS no servidor (resolver fora do ar).
+  - Bloqueio temporário de saída para github.com (firewall).
+  - Intermitência de rede.
+
+Com esses logs, consigo cravar a causa (rede/DNS) e te passar os comandos para corrigir no Contabo (ex.: ajustar /etc/resolv.conf, systemd-resolved, regras de firewall/ufw, etc.).
