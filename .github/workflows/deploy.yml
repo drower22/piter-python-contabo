@@ -14,8 +14,6 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
-        env:
-          REPO_PAT: ${{ secrets.REPO_PAT }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -98,3 +96,5 @@ jobs:
 
             echo "--- Recarregando Nginx ---"
             sudo nginx -t && sudo systemctl reload nginx || true
+        env:
+          REPO_PAT: ${{ secrets.REPO_PAT }}
