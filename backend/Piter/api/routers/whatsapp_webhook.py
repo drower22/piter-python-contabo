@@ -1,3 +1,14 @@
+import os
+from fastapi import APIRouter, Request, Query, Body
+from fastapi.responses import PlainTextResponse, JSONResponse
+from ...infrastructure.database.supabase_client import get_supabase
+from ...services.message_parser import WhatsAppMessageParser
+from ...services.whatsapp_flow import WhatsAppFlowService
+from ...infrastructure.messaging.whatsapp_client import WhatsAppClient
+from ...services.flows import DemoFlowsService
+from pydantic import BaseModel
+
+
 def _load_catalog_item(sb, item_id: str) -> dict:
     q = (
         sb.table('wa_buttons_catalog')
@@ -129,15 +140,7 @@ async def flow_import_consumption(req: ImportGenericBody):
     text = _format_consumption_text(items)
     resp = DemoFlowsService().client.send_text(to, text)
     return {"ok": True, "response": resp}
-import os
-from fastapi import APIRouter, Request, Query, Body
-from fastapi.responses import PlainTextResponse, JSONResponse
-from ...infrastructure.database.supabase_client import get_supabase
-from ...services.message_parser import WhatsAppMessageParser
-from ...services.whatsapp_flow import WhatsAppFlowService
-from ...infrastructure.messaging.whatsapp_client import WhatsAppClient
-from ...services.flows import DemoFlowsService
-from pydantic import BaseModel
+
 
 router = APIRouter(tags=["WhatsApp"], prefix="/_webhooks/whatsapp")
 
