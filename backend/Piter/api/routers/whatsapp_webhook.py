@@ -9,6 +9,9 @@ from ...services.flows import DemoFlowsService
 from pydantic import BaseModel
 
 
+router = APIRouter(tags=["WhatsApp"], prefix="/_webhooks/whatsapp")
+
+
 def _load_catalog_item(sb, item_id: str) -> dict:
     q = (
         sb.table('wa_buttons_catalog')
@@ -140,9 +143,6 @@ async def flow_import_consumption(req: ImportGenericBody):
     text = _format_consumption_text(items)
     resp = DemoFlowsService().client.send_text(to, text)
     return {"ok": True, "response": resp}
-
-
-router = APIRouter(tags=["WhatsApp"], prefix="/_webhooks/whatsapp")
 
 
 @router.get("")
