@@ -160,6 +160,10 @@ class WhatsAppFlowService:
             cat = None
 
         if cat:
+            try:
+                print(f"[DEBUG][FLOW] catalog hit for btn_id={btn_id}: response_type={cat.get('response_type')}, title={cat.get('title')}")
+            except Exception:
+                pass
             rtype = (cat.get('response_type') or 'text').lower()
             if rtype == 'text':
                 resp_text = (cat.get('response_text') or '').strip()
@@ -213,6 +217,52 @@ class WhatsAppFlowService:
                         }
                         self._send_next_buttons(conversation_id, to_number, override)
                         self._apply_next_state(conversation_id, override)
+                        return True
+                    # Se não houver webhook_url ou não houve resposta, tenta mocks locais
+                    # 1) mock_summary
+                    ms = (meta or {}).get('mock_summary')
+                    if isinstance(ms, dict) and ms:
+                        # Formata um resumo simples
+                        pizzas = (ms or {}).get('pizzas_top_10') or []
+                        bebidas = (ms or {}).get('bebidas_top_5') or []
+                        lines = [ (cat.get('response_text') or 'Resumo:').strip() ]
+                        if pizzas:
+                            lines.append('\nTop 10 Pizzas:')
+                            for i, p in enumerate(pizzas[:10], 1):
+                                lines.append(f"{i}. {p.get('nome','?')} — {p.get('qtd',0)} un")
+                        if bebidas:
+                            lines.append('\nTop 5 Bebidas:')
+                            for i, b in enumerate(bebidas[:5], 1):
+                                lines.append(f"{i}. {b.get('nome','?')} — {b.get('qtd',0)} un")
+                        txt = "\n".join(lines)
+                        self.wa_client.send_text(to_number, txt)
+                        self._persist_outbound_message(conversation_id, 'text', {"text": {"body": txt}})
+                        self._send_next_buttons(conversation_id, to_number, cat)
+                        self._apply_next_state(conversation_id, cat)
+                        return True
+                    # 2) mock_consumption
+                    mc = (meta or {}).get('mock_consumption')
+                    if isinstance(mc, list) and mc:
+                        lines = [ (cat.get('response_text') or 'Consumo estimado:').strip() ]
+                        for it in mc[:50]:
+                            lines.append(f"- {it.get('insumo','?')}: {it.get('qtd',0)} {it.get('unidade','')}")
+                        txt = "\n".join(lines)
+                        self.wa_client.send_text(to_number, txt)
+                        self._persist_outbound_message(conversation_id, 'text', {"text": {"body": txt}})
+                        self._send_next_buttons(conversation_id, to_number, cat)
+                        self._apply_next_state(conversation_id, cat)
+                        return True
+                    # 3) service inventory.low_stock_list
+                    service = (meta or {}).get('service')
+                    if service == 'inventory.low_stock_list' or btn_id == 'view_low_stock':
+                        items = [
+                            {'insumo': 'Mussarela', 'qtd_atual': 3, 'qtd_min': 8, 'unid': 'kg'},
+                            {'insumo': 'Calabresa', 'qtd_atual': 2, 'qtd_min': 6, 'unid': 'kg'},
+                            {'insumo': 'Molho', 'qtd_atual': 5, 'qtd_min': 10, 'unid': 'kg'},
+                        ]
+                        self.demo_flows.send_low_stock_list(to_number, items)
+                        self._send_next_buttons(conversation_id, to_number, cat)
+                        self._apply_next_state(conversation_id, cat)
                         return True
                 except Exception as e:
                     print(f'[WARN] Webhook execution failed: {repr(e)}')
