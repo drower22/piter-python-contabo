@@ -1,3 +1,134 @@
+def _load_catalog_item(sb, item_id: str) -> dict:
+    q = (
+        sb.table('wa_buttons_catalog')
+        .select('id,title,response_type,response_text,next_buttons,template_name,template_lang,template_vars,metadata')
+        .eq('id', item_id)
+        .maybe_single()
+        .execute()
+    )
+    return q.data or {}
+
+
+def _apply_defaults(text: str, md: dict) -> str:
+    defaults = {}
+    try:
+        if isinstance(md, str):
+            import json as _json
+            md = _json.loads(md)
+        defaults = (md or {}).get('mock_defaults') or {}
+    except Exception:
+        defaults = {}
+    for k, v in (defaults.items() if isinstance(defaults, dict) else []):
+        text = text.replace(f"{{{{{k}}}}}", str(v))
+    return text
+
+
+def _format_summary_text(ms: dict) -> str:
+    pizzas = (ms or {}).get('pizzas_top_10') or []
+    bebidas = (ms or {}).get('bebidas_top_5') or []
+    lines = ["Resumo das vendas de hoje:"]
+    if pizzas:
+        lines.append("\nTop 10 Pizzas:")
+        for i, p in enumerate(pizzas[:10], 1):
+            lines.append(f"{i}. {p.get('nome','?')} — {p.get('qtd',0)} un")
+    if bebidas:
+        lines.append("\nTop 5 Bebidas:")
+        for i, b in enumerate(bebidas[:5], 1):
+            lines.append(f"{i}. {b.get('nome','?')} — {b.get('qtd',0)} un")
+    return "\n".join(lines)
+
+
+def _format_consumption_text(items: list[dict]) -> str:
+    lines = ["Com base nas vendas de hoje, o consumo estimado é:"]
+    for it in (items or [])[:50]:
+        lines.append(f"- {it.get('insumo','?')}: {it.get('qtd',0)} {it.get('unidade','')}")
+    return "\n".join(lines)
+
+
+class ImportStartBody(BaseModel):
+    to: str
+
+
+@router.post("/_flows/import/start")
+async def flow_import_start(req: ImportStartBody):
+    """Dispara o início do fluxo de importação usando o item 'import_sales_start'."""
+    to = _normalize_phone(req.to)
+    sb = get_supabase()
+    item = _load_catalog_item(sb, 'import_sales_start')
+    if not item:
+        return JSONResponse(status_code=404, content={"error": "catalog_item_not_found", "id": "import_sales_start"})
+    text = _apply_defaults(item.get('response_text') or '', item.get('metadata') or {})
+    buttons = item.get('next_buttons')
+    if isinstance(buttons, str):
+        try:
+            import json as _json
+            buttons = _json.loads(buttons)
+        except Exception:
+            buttons = None
+    client = DemoFlowsService().client
+    if buttons:
+        resp = client.send_buttons(to, text, buttons)
+        return {"ok": True, "mode": "text+buttons", "response": resp}
+    else:
+        resp = client.send_text(to, text)
+        return {"ok": True, "mode": "text", "response": resp}
+
+
+class ImportGenericBody(BaseModel):
+    to: str
+
+
+@router.post("/_flows/import/summary")
+async def flow_import_summary(req: ImportGenericBody):
+    """Envia resumo mock (top pizzas/bebidas) e agenda a pergunta de consumo com botão."""
+    to = _normalize_phone(req.to)
+    sb = get_supabase()
+    item = _load_catalog_item(sb, 'view_summary')
+    if not item:
+        return JSONResponse(status_code=404, content={"error": "catalog_item_not_found", "id": "view_summary"})
+    md = item.get('metadata') or {}
+    try:
+        if isinstance(md, str):
+            import json as _json
+            md = _json.loads(md)
+    except Exception:
+        md = {}
+    ms = (md or {}).get('mock_summary') or {}
+    text = _format_summary_text(ms)
+
+    client = DemoFlowsService().client
+    send1 = client.send_text(to, text)
+
+    # Agenda próxima pergunta com botão 'Ver consumo estimado'
+    import asyncio as _aio
+    delay_s = int((ms or {}).get('delay_next_seconds') or 3)
+
+    async def _later():
+        await _aio.sleep(delay_s)
+        client.send_buttons(to, 'Gostaria de ver o consumo estimado para hoje?', [{"id": "view_consumption", "title": "Ver consumo estimado"}])
+
+    _aio.create_task(_later())
+    return {"ok": True, "sent": send1, "next_in": delay_s}
+
+
+@router.post("/_flows/import/consumption")
+async def flow_import_consumption(req: ImportGenericBody):
+    to = _normalize_phone(req.to)
+    sb = get_supabase()
+    item = _load_catalog_item(sb, 'view_consumption')
+    if not item:
+        return JSONResponse(status_code=404, content={"error": "catalog_item_not_found", "id": "view_consumption"})
+    md = item.get('metadata') or {}
+    try:
+        if isinstance(md, str):
+            import json as _json
+            md = _json.loads(md)
+    except Exception:
+        md = {}
+    items = (md or {}).get('mock_consumption') or []
+    text = _format_consumption_text(items)
+    resp = DemoFlowsService().client.send_text(to, text)
+    return {"ok": True, "response": resp}
 import os
 from fastapi import APIRouter, Request, Query, Body
 from fastapi.responses import PlainTextResponse, JSONResponse
@@ -381,7 +512,7 @@ async def send_local_item(req: LocalSendRequest, request: Request):
     # Busca item
     item_q = (
         sb.table('wa_buttons_catalog')
-        .select('id,title,response_type,response_text,template_name,template_lang,template_vars')
+        .select('id,title,response_type,response_text,template_name,template_lang,template_vars,next_buttons,metadata')
         .eq('id', req.id)
         .maybe_single()
         .execute()
@@ -405,17 +536,44 @@ async def send_local_item(req: LocalSendRequest, request: Request):
             print(_tb.format_exc())
             return JSONResponse(status_code=502, content={"error": "meta_api_error", "details": str(_e)})
 
-    # Fallback: envia texto se configurado
+    # Fallback: envia texto (com ou sem botões)
     if (item.get('response_type') or '').strip() == 'text' and (item.get('response_text') or '').strip():
-        flows = DemoFlowsService()  # possui client interno para texto
+        # Monta texto com placeholders usando metadata.mock_defaults
+        text = item.get('response_text') or ''
+        md = item.get('metadata') or {}
+        defaults = {}
         try:
-            resp = flows.client.send_text(to, item.get('response_text'))
-            return JSONResponse(status_code=200, content={"ok": True, "mode": "text", "response": resp})
+            if isinstance(md, str):
+                import json as _json
+                md = _json.loads(md)
+            defaults = (md or {}).get('mock_defaults') or {}
+        except Exception:
+            defaults = {}
+        for k, v in (defaults.items() if isinstance(defaults, dict) else []):
+            text = text.replace(f"{{{{{k}}}}}", str(v))
+
+        # Decide envio: com botões (interactive) quando next_buttons existir, senão texto simples
+        buttons = item.get('next_buttons')
+        if isinstance(buttons, str):
+            try:
+                import json as _json
+                buttons = _json.loads(buttons)
+            except Exception:
+                buttons = None
+
+        client = DemoFlowsService().client  # reusa client WhatsApp
+        try:
+            if buttons and isinstance(buttons, list) and len(buttons) > 0:
+                resp = client.send_buttons(to, text, buttons)
+                return JSONResponse(status_code=200, content={"ok": True, "mode": "text+buttons", "response": resp})
+            else:
+                resp = client.send_text(to, text)
+                return JSONResponse(status_code=200, content={"ok": True, "mode": "text", "response": resp})
         except Exception as _e2:
             import traceback as _tb2
-            print('[ERROR] local send text failed:', repr(_e2))
+            print('[ERROR] local send text/buttons failed:', repr(_e2))
             print(_tb2.format_exc())
-            return JSONResponse(status_code=500, content={"error": "send_text_failed", "details": str(_e2)})
+            return JSONResponse(status_code=500, content={"error": "send_text_buttons_failed", "details": str(_e2)})
 
     return JSONResponse(status_code=422, content={"error": "unsupported_catalog_item", "id": req.id})
 

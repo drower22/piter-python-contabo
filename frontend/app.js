@@ -1,15 +1,17 @@
 async function loadLocalCatalog() {
   try {
-    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/local/templates`);
+    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/local/catalog`);
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${JSON.stringify(data)}`);
     const items = (data.items||[]);
     if (localSelect) {
       localSelect.innerHTML = '<option value="">Selecione um item</option>' +
         items.map(x => {
-          const tname = x.template_name;
-          const lang = x.lang_code || 'pt_BR';
-          return `<option value="${tname}::${lang}">${x.title || tname} (${lang})</option>`;
+          const tname = (x.template_name || '').trim();
+          const lang = (x.template_lang || 'pt_BR').trim();
+          const label = x.title || tname || x.id;
+          const suffix = tname ? ` (${lang})` : (x.response_type ? ` [${x.response_type}]` : '');
+          return `<option value="${x.id}">${label}${suffix}</option>`;
         }).join('');
     }
     log('[local-catalog]', resp.status, items.length);
@@ -21,14 +23,13 @@ async function loadLocalCatalog() {
 async function sendLocalSelected() {
   const to = (toTemplateEl?.value || '').trim();
   if (!to) return log('[local-send][warn] preencha To');
-  const val = localSelect?.value || '';
-  if (!val) return log('[local-send][warn] selecione um item');
-  const [templateName, langCode] = val.split('::');
+  const id = localSelect?.value || '';
+  if (!id) return log('[local-send][warn] selecione um item');
   try {
-    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/send-template`, {
+    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/local/send`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ to, template_name: templateName, lang_code: langCode || 'pt_BR', variables: [] })
+      body: JSON.stringify({ to, id })
     });
     const data = await resp.json().catch(() => ({}));
     log('[local-send]', resp.status, data);
