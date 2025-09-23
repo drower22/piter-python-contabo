@@ -210,16 +210,19 @@ def _ensure_contact(sb, wa_number: str, profile_name: str | None):
     """
     try:
         norm = _normalize_phone(wa_number)
+        print(f"[DEBUG][CONTACT] resolve start wa={wa_number} norm={norm}")
         # Busca direta por igualdade. Caso a base armazene com '+', tentamos as duas formas.
         q = sb.table('perfis').select('id, whatsapp').eq('whatsapp', norm).maybe_single().execute()
         data = getattr(q, 'data', None) or (q.get('data') if isinstance(q, dict) else None) or {}
         if data.get('id'):
+            print(f"[DEBUG][CONTACT] matched exact digits perfis.id={data['id']} whatsapp={data.get('whatsapp')}")
             return data['id']
 
         # Tentativa alternativa com '+' prefixado
         q2 = sb.table('perfis').select('id, whatsapp').eq('whatsapp', f"+{norm}").maybe_single().execute()
         data2 = getattr(q2, 'data', None) or (q2.get('data') if isinstance(q2, dict) else None) or {}
         if data2.get('id'):
+            print(f"[DEBUG][CONTACT] matched exact +digits perfis.id={data2['id']} whatsapp={data2.get('whatsapp')}")
             return data2['id']
 
         # Como última tentativa, buscar por LIKE contendo o final do número (pode haver formatação diferente)
@@ -233,6 +236,7 @@ def _ensure_contact(sb, wa_number: str, profile_name: str | None):
             )
             q3data = getattr(q3, 'data', None) or (q3.get('data') if isinstance(q3, dict) else None)
             if q3data and isinstance(q3data, list) and q3data:
+                print(f"[DEBUG][CONTACT] matched LIKE perfis.id={q3data[0].get('id')} whatsapp={q3data[0].get('whatsapp')}")
                 return q3data[0].get('id')
         except Exception:
             pass
