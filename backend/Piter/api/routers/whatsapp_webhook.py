@@ -262,15 +262,30 @@ def _ensure_open_conversation(sb, contact_id: str) -> str:
     if qdata.get('id'):
         return qdata['id']
 
+    # Alguns clientes Supabase não suportam chaining .select() após insert.
     ins = (
         sb.table('wa_conversations')
         .insert({'contact_id': contact_id, 'status': 'open'})
-        .select('id')
-        .single()
         .execute()
     )
-    ins_data = getattr(ins, 'data', None) or (ins.get('data') if isinstance(ins, dict) else None) or {}
-    if not ins_data.get('id'):
+    ins_data = getattr(ins, 'data', None) or (ins.get('data') if isinstance(ins, dict) else None)
+    # ins_data pode ser um dict ou lista de dicts
+    if isinstance(ins_data, list):
+        ins_data = ins_data[0] if ins_data else {}
+    if not ins_data or not ins_data.get('id'):
+        # como fallback, tente buscar imediatamente a conversa recém criada
+        q_new = (
+            sb.table('wa_conversations')
+            .select('id')
+            .eq('contact_id', contact_id)
+            .eq('status', 'open')
+            .order('created_at', desc=True)
+            .maybe_single()
+            .execute()
+        )
+        q_new_data = getattr(q_new, 'data', None) or (q_new.get('data') if isinstance(q_new, dict) else None) or {}
+        if q_new_data.get('id'):
+            return q_new_data['id']
         raise RuntimeError("failed_to_create_conversation")
     return ins_data['id']
 
