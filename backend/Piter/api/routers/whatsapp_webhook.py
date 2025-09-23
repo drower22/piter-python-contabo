@@ -212,13 +212,13 @@ def _ensure_contact(sb, wa_number: str, profile_name: str | None):
         norm = _normalize_phone(wa_number)
         # Busca direta por igualdade. Caso a base armazene com '+', tentamos as duas formas.
         q = sb.table('perfis').select('id, whatsapp').eq('whatsapp', norm).maybe_single().execute()
-        data = q.data or {}
+        data = getattr(q, 'data', None) or (q.get('data') if isinstance(q, dict) else None) or {}
         if data.get('id'):
             return data['id']
 
         # Tentativa alternativa com '+' prefixado
         q2 = sb.table('perfis').select('id, whatsapp').eq('whatsapp', f"+{norm}").maybe_single().execute()
-        data2 = q2.data or {}
+        data2 = getattr(q2, 'data', None) or (q2.get('data') if isinstance(q2, dict) else None) or {}
         if data2.get('id'):
             return data2['id']
 
@@ -231,8 +231,9 @@ def _ensure_contact(sb, wa_number: str, profile_name: str | None):
                 .limit(1)
                 .execute()
             )
-            if q3.data and isinstance(q3.data, list) and q3.data:
-                return q3.data[0].get('id')
+            q3data = getattr(q3, 'data', None) or (q3.get('data') if isinstance(q3, dict) else None)
+            if q3data and isinstance(q3data, list) and q3data:
+                return q3data[0].get('id')
         except Exception:
             pass
 
