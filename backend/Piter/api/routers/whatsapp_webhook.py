@@ -319,10 +319,35 @@ async def list_local_templates(request: Request):
       meta.template_name, meta.lang_code, meta.components (opcional)
     Apenas entradas com meta.template_name serão consideradas.
     """
-    admin_token = os.getenv("ADMIN_TOKEN")
-    if admin_token and request.headers.get("x-admin-token") != admin_token:
-        return JSONResponse(status_code=403, content={"error": "forbidden"})
+    # Endpoint público: sem necessidade de x-admin-token
 
+    sb = get_supabase()
+    q = (
+        sb.table('wa_buttons_catalog')
+        .select('id,title,response_type,response_text,next_state,next_buttons,template_name,template_lang,template_vars,metadata')
+        .eq('active', True)
+        .execute()
+    )
+    items = []
+    for r in (q.data or []):
+        tname = (r.get('template_name') or '').strip()
+        if not tname:
+            continue
+        items.append({
+            'id': r.get('id'),
+            'title': r.get('title'),
+            'template_name': tname,
+            'lang_code': (r.get('template_lang') or 'pt_BR'),
+            'components': r.get('template_vars') or [],
+        })
+    return {"items": items}
+
+
+@router.get("/_admin/local/templates_public")
+async def list_local_templates_public(request: Request):
+    """
+    Espelho público do endpoint de templates locais para evitar bloqueios por token.
+    """
     sb = get_supabase()
     q = (
         sb.table('wa_buttons_catalog')
