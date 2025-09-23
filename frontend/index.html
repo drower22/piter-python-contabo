@@ -87,10 +87,12 @@
             </select>
             <button class="btn" id="btnLoadMetaSelect">Carregar</button>
           </div>
-          <label>Linguagem (ex: pt_BR)</label>
-          <input id="lang" value="pt_BR" />
-          <label>Variáveis (separadas por vírgula)</label>
-          <input id="vars" placeholder="João, 10:30" />
+          <div id="templateAdvanced">
+            <label>Linguagem (ex: pt_BR)</label>
+            <input id="lang" value="pt_BR" />
+            <label>Variáveis (separadas por vírgula)</label>
+            <input id="vars" placeholder="João, 10:30" />
+          </div>
           <div class="actions">
             <button class="btn" id="btnSendTemplate">Enviar</button>
             <button class="btn secondary" id="btnClearLog">Limpar log</button>
@@ -109,6 +111,7 @@
           <div class="actions" style="margin-top:10px;">
             <button class="btn" id="btnSendLocal">Enviar Local</button>
           </div>
+          <div id="localPreview" class="muted" style="margin-top:8px; font-size: 12px;"></div>
         </section>
 
         <section class="card" style="grid-column: span 12">

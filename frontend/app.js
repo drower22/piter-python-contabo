@@ -4,6 +4,7 @@ async function loadLocalCatalog() {
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${JSON.stringify(data)}`);
     const items = (data.items||[]);
+    items.sort((a,b) => String(a.title || a.template_name || a.id).localeCompare(String(b.title || b.template_name || b.id)));
     if (localSelect) {
       localSelect.innerHTML = '<option value="">Selecione um item</option>' +
         items.map(x => {
@@ -51,6 +52,8 @@ const templateSelect = document.getElementById('templateSelect');
 const localSelect = document.getElementById('localTemplateSelect');
 const btnLoadLocalSelect = document.getElementById('btnLoadLocalSelect');
 const btnSendLocal = document.getElementById('btnSendLocal');
+const templateAdvanced = document.getElementById('templateAdvanced');
+const localPreview = document.getElementById('localPreview');
 
 const label = document.getElementById('apiBaseLabel');
 if (label) label.textContent = API_BASE;
@@ -134,6 +137,7 @@ async function loadMetaTemplates() {
     // Preenche o select de templates Meta
     if (templateSelect) {
       const items = data.items || [];
+      items.sort((a,b) => String(a.name).localeCompare(String(b.name)));
       templateSelect.innerHTML = '<option value="">Selecione um template</option>' +
         items.map(t => `<option value="${t.name}::${t.language}">${t.name} (${t.language})</option>`).join('');
     }
@@ -228,6 +232,13 @@ function connectLogStream() {
 // Inicia quando o DOM estiver pronto
 document.addEventListener('DOMContentLoaded', () => {
   connectLogStream();
+  if (templateAdvanced) templateAdvanced.style.display = '';
+  if (templateSelect) templateSelect.addEventListener('change', () => {
+    if (!templateAdvanced) return;
+    const sel = templateSelect.value;
+    templateAdvanced.style.display = sel ? 'none' : '';
+  });
+  if (localSelect) localSelect.addEventListener('change', renderLocalPreview);
 });
 
 // Eventos
@@ -241,3 +252,21 @@ if (btnSendLocal) btnSendLocal.addEventListener('click', sendLocalSelected);
 
 // Inicializa
 // no extra setup
+
+function renderLocalPreview() {
+  if (!localPreview) return;
+  const id = localSelect?.value || '';
+  if (!id) { localPreview.textContent = ''; return; }
+  // Usa a última lista carregada? fazemos uma requisição rápida por id
+  fetch(`${API_BASE}/_webhooks/whatsapp/_admin/local/catalog`)
+    .then(r => r.json()).then(d => {
+      const item = (d.items||[]).find(x => x.id === id);
+      if (!item) { localPreview.textContent = ''; return; }
+      const tname = item.template_name || '';
+      const lang = item.template_lang || 'pt_BR';
+      const tipo = item.response_type || (tname ? 'template' : 'text');
+      const nb = Array.isArray(item.next_buttons) ? item.next_buttons : [];
+      const nbTxt = nb.length ? nb.map(b=>`• ${b.title} (${b.id})`).join(' | ') : '-';
+      localPreview.textContent = `Tipo: ${tipo} ${tname?`| Template: ${tname} (${lang})`:''} | Próximos botões: ${nbTxt}`;
+    }).catch(()=>{});
+}

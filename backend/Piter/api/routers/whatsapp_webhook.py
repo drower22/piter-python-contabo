@@ -536,6 +536,17 @@ async def send_local_item(req: LocalSendRequest, request: Request):
         except Exception as _e:
             import traceback as _tb
             print('[ERROR] local send template failed:', repr(_e))
+            # incluir corpo retornado pela Meta se disponível
+            try:
+                import requests as _rq
+                if isinstance(_e, _rq.exceptions.HTTPError) and getattr(_e, 'response', None) is not None:
+                    return JSONResponse(status_code=502, content={
+                        "error": "meta_api_error",
+                        "http_status": _e.response.status_code,
+                        "meta_body": _e.response.text,
+                    })
+            except Exception:
+                pass
             print(_tb.format_exc())
             return JSONResponse(status_code=502, content={"error": "meta_api_error", "details": str(_e)})
 
@@ -575,8 +586,51 @@ async def send_local_item(req: LocalSendRequest, request: Request):
         except Exception as _e2:
             import traceback as _tb2
             print('[ERROR] local send text/buttons failed:', repr(_e2))
+            # incluir corpo retornado pela Meta se disponível
+            try:
+                import requests as _rq
+                if isinstance(_e2, _rq.exceptions.HTTPError) and getattr(_e2, 'response', None) is not None:
+                    return JSONResponse(status_code=502, content={
+                        "error": "send_text_buttons_failed",
+                        "http_status": _e2.response.status_code,
+                        "meta_body": _e2.response.text,
+                    })
+            except Exception:
+                pass
             print(_tb2.format_exc())
             return JSONResponse(status_code=500, content={"error": "send_text_buttons_failed", "details": str(_e2)})
+
+    # Webhook: roteia para serviços mockados
+    if (item.get('response_type') or '').strip() == 'webhook':
+        btn_id = item.get('id') or req.id
+        try:
+            if btn_id == 'view_summary':
+                # reutiliza nosso fluxo mock
+                return await flow_import_summary(ImportGenericBody(to=to))
+            if btn_id == 'view_consumption':
+                return await flow_import_consumption(ImportGenericBody(to=to))
+            # fallback por metadata.service
+            md = item.get('metadata') or {}
+            try:
+                if isinstance(md, str):
+                    import json as _json
+                    md = _json.loads(md)
+            except Exception:
+                md = {}
+            service = (md or {}).get('service')
+            if service == 'inventory.low_stock_list' or btn_id == 'view_low_stock':
+                flows = DemoFlowsService()
+                items = [
+                    {'insumo': 'Mussarela', 'qtd_atual': 3, 'qtd_min': 8, 'unid': 'kg'},
+                    {'insumo': 'Calabresa', 'qtd_atual': 2, 'qtd_min': 6, 'unid': 'kg'},
+                ]
+                resp = flows.send_low_stock_list(to, items)
+                return JSONResponse(status_code=200, content={"ok": True, "mode": "webhook", "service": service or btn_id, "response": resp})
+        except Exception as _e3:
+            import traceback as _tb3
+            print('[ERROR] local send webhook failed:', repr(_e3))
+            print(_tb3.format_exc())
+            return JSONResponse(status_code=500, content={"error": "webhook_failed", "details": str(_e3)})
 
     return JSONResponse(status_code=422, content={"error": "unsupported_catalog_item", "id": req.id})
 
