@@ -31,20 +31,61 @@ class WhatsAppFlowService:
 
     def _get_conversation_state(self, conversation_id: str) -> Tuple[str, dict]:
         """Busca o estado atual da conversa no banco de dados (wa_conversation_state)."""
-        resp = self.sb.table('wa_conversation_state').select('state_key, data').eq('conversation_id', conversation_id).maybe_single().execute()
-        data = resp.data or {}
-        return data.get('state_key') or 'welcome', (data.get('data') or {})
+        try:
+            resp = (
+                self.sb.table('wa_conversation_state')
+                .select('state_key, data')
+                .eq('conversation_id', conversation_id)
+                .maybe_single()
+                .execute()
+            )
+            rdata = getattr(resp, 'data', None) or (resp.get('data') if isinstance(resp, dict) else None) or {}
+            state_key = (rdata.get('state_key') or 'welcome')
+            state_data = (rdata.get('data') or {})
+            return state_key, state_data
+        except Exception as e:
+            print(f"[WARN] _get_conversation_state failed: {repr(e)}")
+            return 'welcome', {}
 
     def _set_conversation_state(self, conversation_id: str, step: str, context: dict) -> None:
         """Salva o novo estado da conversa no banco (RPC wa_set_conversation_state)."""
         try:
-            self.sb.rpc('wa_set_conversation_state', {
-                'p_conversation_id': str(conversation_id),
-                'p_state_key': str(step),
-                'p_data': context or None,
-            }).execute()
+            # Tenta via RPC se existir
+            try:
+                self.sb.rpc('wa_set_conversation_state', {
+                    'p_conversation_id': str(conversation_id),
+                    'p_state_key': str(step),
+                    'p_data': context or None,
+                }).execute()
+                return
+            except Exception:
+                pass
+
+            # Fallback: UPSERT direto
+            # Como não sabemos a chave única no cliente, usamos upsert com on_conflict em conversation_id
+            payload = {
+                'conversation_id': str(conversation_id),
+                'state_key': str(step),
+                'data': context or None,
+                'updated_at': 'now()',
+            }
+            # upsert (insert com on_conflict) pode não estar disponível em todos os SDKs; tentamos update->insert
+            upd = (
+                self.sb.table('wa_conversation_state')
+                .update(payload)
+                .eq('conversation_id', conversation_id)
+                .execute()
+            )
+            udata = getattr(upd, 'data', None) or (upd.get('data') if isinstance(upd, dict) else None)
+            if not udata:
+                # cria se não existir
+                self.sb.table('wa_conversation_state').insert({
+                    'conversation_id': str(conversation_id),
+                    'state_key': str(step),
+                    'data': context or None,
+                }).execute()
         except Exception as e:
-            print(f"[WARN] Failed to set conversation state via RPC: {repr(e)}")
+            print(f"[WARN] Failed to set conversation state: {repr(e)}")
 
     def _persist_button_click(self, conversation_id: str, contact_id: str, msg: ParsedWhatsAppMessage):
         """Salva o evento de clique de botão para fins de análise."""
