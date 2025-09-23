@@ -198,15 +198,49 @@ def _get_first(lst):
 
 
 def _ensure_contact(sb, wa_number: str, profile_name: str | None):
-    # Busca por número; cria se não existir
-    q = sb.table('wa_contacts').select('id').eq('whatsapp_number', wa_number).maybe_single().execute()
-    if q.data and q.data.get('id'):
-        return q.data['id']
-    ins = sb.table('wa_contacts').insert({
-        'whatsapp_number': wa_number,
-        'profile_name': profile_name,
-    }).select('id').single().execute()
-    return ins.data['id']
+    """
+    Garante o ID do contato para abertura de conversa usando a tabela 'perfis'.
+    Observação importante: no schema atual, wa_conversations.contact_id referencia perfis(id),
+    então não podemos inserir em 'wa_contacts' (view) nem criar um contato novo sem um auth.user.
+
+    Comportamento:
+    - Busca em perfis pelo campo 'whatsapp' já normalizado (apenas dígitos)
+    - Se encontrar, retorna perfis.id
+    - Se não encontrar, retorna None (o caller deve tratar e decidir o que fazer)
+    """
+    try:
+        norm = _normalize_phone(wa_number)
+        # Busca direta por igualdade. Caso a base armazene com '+', tentamos as duas formas.
+        q = sb.table('perfis').select('id, whatsapp').eq('whatsapp', norm).maybe_single().execute()
+        data = q.data or {}
+        if data.get('id'):
+            return data['id']
+
+        # Tentativa alternativa com '+' prefixado
+        q2 = sb.table('perfis').select('id, whatsapp').eq('whatsapp', f"+{norm}").maybe_single().execute()
+        data2 = q2.data or {}
+        if data2.get('id'):
+            return data2['id']
+
+        # Como última tentativa, buscar por LIKE contendo o final do número (pode haver formatação diferente)
+        try:
+            q3 = (
+                sb.table('perfis')
+                .select('id, whatsapp')
+                .like('whatsapp', f"%{norm}")
+                .limit(1)
+                .execute()
+            )
+            if q3.data and isinstance(q3.data, list) and q3.data:
+                return q3.data[0].get('id')
+        except Exception:
+            pass
+
+        # Não encontrado
+        return None
+    except Exception as _e:
+        print(f"[WARN] _ensure_contact failed: {repr(_e)}")
+        return None
 
 
 def _ensure_open_conversation(sb, contact_id: str) -> str:
@@ -243,6 +277,11 @@ async def receive_update(request: Request):
         for msg in parsed_messages:
             try:
                 contact_id = _ensure_contact(sb, wa_number=msg.sender_number, profile_name=msg.profile_name)
+                if not contact_id:
+                    print(f"[WARN] No profile found in 'perfis' for number {msg.sender_number}; skipping message processing.")
+                    # Opcional: aqui poderíamos enviar uma mensagem informando que o número não está cadastrado.
+                    continue
+
                 conversation_id = _ensure_open_conversation(sb, contact_id)
 
                 # Persiste a mensagem de entrada aqui, antes de processar

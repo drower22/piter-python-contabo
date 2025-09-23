@@ -33,3 +33,8 @@ node_modules/
 /dist/
 /build/
 backend/.env
+
+# Local envs
+*.env
+backend/.env
+
