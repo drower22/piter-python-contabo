@@ -38,24 +38,41 @@ def _apply_defaults(text: str, md: dict) -> str:
 
 
 def _format_summary_text(ms: dict) -> str:
+    """Formata o resumo para leitura agradável no celular (WhatsApp markdown)."""
     pizzas = (ms or {}).get('pizzas_top_10') or []
     bebidas = (ms or {}).get('bebidas_top_5') or []
-    lines = ["Resumo das vendas de hoje:"]
+    tot_txt = (ms or {}).get('totais_txt') or ''
+
+    lines = [
+        "*📊 Resumo de Hoje*",
+        tot_txt.strip() if tot_txt else "",
+    ]
     if pizzas:
-        lines.append("\nTop 10 Pizzas:")
+        lines.append("")
+        lines.append("*🍕 Top 10 Pizzas*")
         for i, p in enumerate(pizzas[:10], 1):
-            lines.append(f"{i}. {p.get('nome','?')} — {p.get('qtd',0)} un")
+            nome = p.get('nome','?')
+            qtd = p.get('qtd',0)
+            lines.append(f"{i:02d}. {nome} · {qtd} un")
     if bebidas:
-        lines.append("\nTop 5 Bebidas:")
+        lines.append("")
+        lines.append("*🥤 Top 5 Bebidas*")
         for i, b in enumerate(bebidas[:5], 1):
-            lines.append(f"{i}. {b.get('nome','?')} — {b.get('qtd',0)} un")
-    return "\n".join(lines)
+            nome = b.get('nome','?')
+            qtd = b.get('qtd',0)
+            lines.append(f"{i:02d}. {nome} · {qtd} un")
+    # Remove vazios e junta com quebras curtas
+    return "\n".join([s for s in lines if str(s).strip() != ""])
 
 
 def _format_consumption_text(items: list[dict]) -> str:
-    lines = ["Com base nas vendas de hoje, o consumo estimado é:"]
-    for it in (items or [])[:50]:
-        lines.append(f"- {it.get('insumo','?')}: {it.get('qtd',0)} {it.get('unidade','')}")
+    """Formata consumo estimado com bullets amigáveis para mobile."""
+    lines = ["*📦 Consumo Estimado (hoje)*"]
+    for it in (items or [])[:40]:
+        ins = it.get('insumo') or it.get('nome') or '?'
+        qtd = it.get('qtd') or it.get('quantidade') or 0
+        un  = it.get('unidade') or it.get('un') or ''
+        lines.append(f"• {ins}: {qtd} {un}")
     return "\n".join(lines)
 
 
