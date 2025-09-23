@@ -347,6 +347,78 @@ async def list_local_templates(request: Request):
     return {"items": items}
 
 
+@router.get("/_admin/local/catalog")
+async def get_full_local_catalog(request: Request):
+    """
+    Lista completa dos itens ativos do catálogo local (wa_buttons_catalog),
+    incluindo campos de resposta (response_type/response_text) mesmo quando não há template.
+    """
+    sb = get_supabase()
+    q = (
+        sb.table('wa_buttons_catalog')
+        .select('id,title,response_type,response_text,next_state,next_buttons,template_name,template_lang,template_vars,metadata')
+        .eq('active', True)
+        .execute()
+    )
+    items = q.data or []
+    return {"items": items}
+
+
+class LocalSendRequest(BaseModel):
+    to: str
+    id: str
+
+
+@router.post("/_admin/local/send")
+async def send_local_item(req: LocalSendRequest, request: Request):
+    """
+    Envia um item do catálogo local para o número informado.
+    - Se houver template_name: envia template via Meta
+    - Caso contrário e se response_type == 'text' e houver response_text: envia texto
+    """
+    to = _normalize_phone(req.to)
+    sb = get_supabase()
+    # Busca item
+    item_q = (
+        sb.table('wa_buttons_catalog')
+        .select('id,title,response_type,response_text,template_name,template_lang,template_vars')
+        .eq('id', req.id)
+        .maybe_single()
+        .execute()
+    )
+    item = item_q.data or {}
+    if not item:
+        return JSONResponse(status_code=404, content={"error": "catalog_item_not_found"})
+
+    tname = (item.get('template_name') or '').strip()
+    lang = (item.get('template_lang') or 'pt_BR').strip()
+    if tname:
+        # Envia como template
+        client = WhatsAppClient()
+        components = item.get('template_vars') or []
+        try:
+            resp = client.send_template(to=to, template=tname, language=lang, components=components)
+            return JSONResponse(status_code=200, content={"ok": True, "mode": "template", "response": resp})
+        except Exception as _e:
+            import traceback as _tb
+            print('[ERROR] local send template failed:', repr(_e))
+            print(_tb.format_exc())
+            return JSONResponse(status_code=502, content={"error": "meta_api_error", "details": str(_e)})
+
+    # Fallback: envia texto se configurado
+    if (item.get('response_type') or '').strip() == 'text' and (item.get('response_text') or '').strip():
+        flows = DemoFlowsService()  # possui client interno para texto
+        try:
+            resp = flows.client.send_text(to, item.get('response_text'))
+            return JSONResponse(status_code=200, content={"ok": True, "mode": "text", "response": resp})
+        except Exception as _e2:
+            import traceback as _tb2
+            print('[ERROR] local send text failed:', repr(_e2))
+            print(_tb2.format_exc())
+            return JSONResponse(status_code=500, content={"error": "send_text_failed", "details": str(_e2)})
+
+    return JSONResponse(status_code=422, content={"error": "unsupported_catalog_item", "id": req.id})
+
 @router.get("/_admin/local/templates_public")
 async def list_local_templates_public(request: Request):
     """

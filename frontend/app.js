@@ -1,3 +1,41 @@
+async function loadLocalCatalog() {
+  try {
+    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/local/templates`);
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${JSON.stringify(data)}`);
+    const items = (data.items||[]);
+    if (localSelect) {
+      localSelect.innerHTML = '<option value="">Selecione um item</option>' +
+        items.map(x => {
+          const tname = x.template_name;
+          const lang = x.lang_code || 'pt_BR';
+          return `<option value="${tname}::${lang}">${x.title || tname} (${lang})</option>`;
+        }).join('');
+    }
+    log('[local-catalog]', resp.status, items.length);
+  } catch (e) {
+    log('[local-catalog][error]', e.message || e);
+  }
+}
+
+async function sendLocalSelected() {
+  const to = (toTemplateEl?.value || '').trim();
+  if (!to) return log('[local-send][warn] preencha To');
+  const val = localSelect?.value || '';
+  if (!val) return log('[local-send][warn] selecione um item');
+  const [templateName, langCode] = val.split('::');
+  try {
+    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/send-template`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ to, template_name: templateName, lang_code: langCode || 'pt_BR', variables: [] })
+    });
+    const data = await resp.json().catch(() => ({}));
+    log('[local-send]', resp.status, data);
+  } catch (e) {
+    log('[local-send][error]', e.message || e);
+  }
+}
 // Module script
 const API_BASE = (window.API_BASE || 'https://api.pitzei.com.br').replace(/\/$/, '');
 const logEl = document.getElementById('log');
@@ -5,26 +43,18 @@ const healthBtn = document.getElementById('btnHealth');
 const healthResult = document.getElementById('healthResult');
 const sendBtn = document.getElementById('btnSendTemplate');
 const clearBtn = document.getElementById('btnClearLog');
-// Demo flow buttons
-const btnTriggerImport = document.getElementById('btnTriggerImport');
-const btnTriggerLowStock = document.getElementById('btnTriggerLowStock');
-const btnTriggerCMV = document.getElementById('btnTriggerCMV');
-const btnSimSummary = document.getElementById('btnSimSummary');
-const btnSimLowStock = document.getElementById('btnSimLowStock');
-const btnSimCMV = document.getElementById('btnSimCMV');
-// New template UI elements
 const btnLoadMeta = document.getElementById('btnLoadMeta');
-const btnLoadLocal = document.getElementById('btnLoadLocal');
 const metaTemplatesEl = document.getElementById('metaTemplates');
-const localTemplatesEl = document.getElementById('localTemplates');
-const adminToken2El = document.getElementById('adminToken2');
+const btnLoadMetaSelect = document.getElementById('btnLoadMetaSelect');
+const templateSelect = document.getElementById('templateSelect');
+const localSelect = document.getElementById('localTemplateSelect');
+const btnLoadLocalSelect = document.getElementById('btnLoadLocalSelect');
+const btnSendLocal = document.getElementById('btnSendLocal');
 
 const label = document.getElementById('apiBaseLabel');
 if (label) label.textContent = API_BASE;
-// Inputs de destino
+// Inputs
 const toTemplateEl = document.getElementById('to');
-const toTriggerEl = document.getElementById('toTrigger');
-const adminTokenEl = document.getElementById('adminToken');
 
 // Novo botão de copiar
 const copyBtn = document.getElementById('copyLog');
@@ -86,7 +116,7 @@ async function sendTemplateQuick(templateName, langCode, toOverride) {
     });
     const data = await resp.json().catch(() => ({}));
     log('[send-quick]', templateName, langCode, resp.status, data);
-    if (toTriggerEl && to) toTriggerEl.value = to;
+    // no-op
   } catch (e) {
     log('[send-quick][error]', e.message || e);
   }
@@ -94,32 +124,20 @@ async function sendTemplateQuick(templateName, langCode, toOverride) {
 
 async function loadMetaTemplates() {
   try {
-    const headers = {};
-    const tok = (adminToken2El?.value || '').trim();
-    if (tok) headers['x-admin-token'] = tok;
-    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/meta/templates?limit=100`, { headers });
+    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/meta/templates?limit=100`);
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${JSON.stringify(data)}`);
     renderTemplatesList(metaTemplatesEl, data.items || [], 'Meta');
     log('[meta-templates]', resp.status, (data.items||[]).length);
+
+    // Preenche o select de templates Meta
+    if (templateSelect) {
+      const items = data.items || [];
+      templateSelect.innerHTML = '<option value="">Selecione um template</option>' +
+        items.map(t => `<option value="${t.name}::${t.language}">${t.name} (${t.language})</option>`).join('');
+    }
   } catch (e) {
     log('[meta-templates][error]', e.message || e);
-  }
-}
-
-async function loadLocalTemplates() {
-  try {
-    const headers = {};
-    const tok = (adminToken2El?.value || '').trim();
-    if (tok) headers['x-admin-token'] = tok;
-    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/local/templates`, { headers });
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${JSON.stringify(data)}`);
-    const items = (data.items||[]).map(x => ({ name: x.template_name, language: x.lang_code }));
-    renderTemplatesList(localTemplatesEl, items, 'Local');
-    log('[local-templates]', resp.status, (items||[]).length);
-  } catch (e) {
-    log('[local-templates][error]', e.message || e);
   }
 }
 
@@ -148,54 +166,20 @@ async function checkHealth() {
   }
 }
 
-// Dispara os fluxos de demonstração no backend
-async function triggerFlow(path) {
-  const to = (toTriggerEl?.value || '').trim();
-  if (!to) {
-    log('[trigger][warn] preencha To');
-    return;
-  }
-  try {
-    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/demo/trigger/${path}`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...(adminTokenEl?.value ? { 'x-admin-token': adminTokenEl.value.trim() } : {})
-      },
-      body: JSON.stringify({ to })
-    });
-    const data = await resp.json().catch(() => ({}));
-    log(`[trigger:${path}]`, resp.status, data);
-  } catch (e) {
-    log(`[trigger:${path}][error]`, e.message || e);
-  }
-}
-
-async function simulateClick(btn_id) {
-  const to = (toTriggerEl?.value || '').trim();
-  if (!to) {
-    log('[simulate][warn] preencha To');
-    return;
-  }
-  try {
-    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/debug/simulate-click`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ to, btn_id })
-    });
-    const data = await resp.json().catch(() => ({}));
-    log(`[simulate:${btn_id}]`, resp.status, data);
-  } catch (e) {
-    log(`[simulate:${btn_id}][error]`, e.message || e);
-  }
-}
-
 async function sendTemplate() {
   const to = toTemplateEl.value.trim();
-  const template = document.getElementById('template').value.trim();
-  const lang = document.getElementById('lang').value.trim() || 'pt_BR';
+  // Lê do dropdown (formato name::lang). Se vazio, usa campos manuais
+  const selVal = templateSelect?.value || '';
+  let template = '';
+  let lang = '';
+  if (selVal) {
+    const parts = selVal.split('::');
+    template = (parts[0] || '').trim();
+    lang = (parts[1] || '').trim();
+  } else {
+    template = (document.getElementById('template')?.value || '').trim();
+    lang = (document.getElementById('lang')?.value || 'pt_BR').trim();
+  }
   const varsRaw = document.getElementById('vars').value.trim();
   const variables = varsRaw ? varsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
 
@@ -220,63 +204,9 @@ async function sendTemplate() {
     });
     const data = await resp.json().catch(() => ({}));
     log('[send-template]', resp.status, data);
-    // Sincroniza automaticamente o To do fluxo com o To do template após envio
-    if (toTriggerEl && to) toTriggerEl.value = to;
+    // no-op
   } catch (e) {
     log('[send-template][error]', e.message || e);
-  }
-}
-
-// -----------------
-// Supabase (usuarios)
-// -----------------
-// Carrega/salva config no localStorage
-const sbUrlEl = document.getElementById('sbUrl');
-const sbKeyEl = document.getElementById('sbKey');
-const btnSaveSupabase = document.getElementById('btnSaveSupabase');
-const btnLoadUsers = document.getElementById('btnLoadUsers');
-const usersTableBody = document.querySelector('#usersTable tbody');
-
-function loadSupabaseCfg() {
-  const url = localStorage.getItem('SB_URL') || '';
-  const key = localStorage.getItem('SB_KEY') || '';
-  if (sbUrlEl) sbUrlEl.value = url;
-  if (sbKeyEl) sbKeyEl.value = key;
-}
-
-function saveSupabaseCfg() {
-  const url = (sbUrlEl?.value || '').trim();
-  const key = (sbKeyEl?.value || '').trim();
-  localStorage.setItem('SB_URL', url);
-  localStorage.setItem('SB_KEY', key);
-  log('[supabase] configuração salva');
-}
-
-async function fetchUsers() {
-  const url = localStorage.getItem('SB_URL');
-  const key = localStorage.getItem('SB_KEY');
-  if (!url || !key) {
-    log('[supabase][warn] Configure SUPABASE_URL e SUPABASE_ANON_KEY');
-    return;
-  }
-  try {
-    const resp = await fetch(`${url.replace(/\/$/, '')}/rest/v1/usuarios?select=id,nome,whatsapp`, {
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-      }
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const items = await resp.json();
-    usersTableBody.innerHTML = '';
-    for (const r of items) {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${r.id ?? ''}</td><td>${r.nome ?? ''}</td><td>${r.whatsapp ?? ''}</td>`;
-      usersTableBody.appendChild(tr);
-    }
-    log('[supabase][usuarios]', items);
-  } catch (e) {
-    log('[supabase][error]', e.message || e);
   }
 }
 
@@ -303,24 +233,10 @@ document.addEventListener('DOMContentLoaded', () => {
 if (healthBtn) healthBtn.addEventListener('click', checkHealth);
 if (sendBtn) sendBtn.addEventListener('click', sendTemplate);
 if (clearBtn) clearBtn.addEventListener('click', () => (logEl.textContent = ''));
-if (btnSaveSupabase) btnSaveSupabase.addEventListener('click', saveSupabaseCfg);
-if (btnLoadUsers) btnLoadUsers.addEventListener('click', fetchUsers);
-if (btnTriggerImport) btnTriggerImport.addEventListener('click', () => triggerFlow('importacao'));
-if (btnTriggerLowStock) btnTriggerLowStock.addEventListener('click', () => triggerFlow('estoque_baixo'));
-if (btnTriggerCMV) btnTriggerCMV.addEventListener('click', () => triggerFlow('cmv'));
-if (btnSimSummary) btnSimSummary.addEventListener('click', () => simulateClick('view_summary'));
-if (btnSimLowStock) btnSimLowStock.addEventListener('click', () => simulateClick('view_low_stock'));
-if (btnSimCMV) btnSimCMV.addEventListener('click', () => simulateClick('view_cmv_analysis'));
 if (btnLoadMeta) btnLoadMeta.addEventListener('click', loadMetaTemplates);
-if (btnLoadLocal) btnLoadLocal.addEventListener('click', loadLocalTemplates);
+if (btnLoadMetaSelect) btnLoadMetaSelect.addEventListener('click', loadMetaTemplates);
+if (btnLoadLocalSelect) btnLoadLocalSelect.addEventListener('click', loadLocalCatalog);
+if (btnSendLocal) btnSendLocal.addEventListener('click', sendLocalSelected);
 
 // Inicializa
-loadSupabaseCfg();
-// Preenche toTrigger com o mesmo valor do campo de template, se existir
-if (toTemplateEl && toTriggerEl) {
-  toTriggerEl.value = toTemplateEl.value || toTriggerEl.value || '+55';
-  // Mantém sincronizado quando o usuário digitar no campo de template
-  toTemplateEl.addEventListener('input', () => {
-    toTriggerEl.value = toTemplateEl.value;
-  });
-}
+// no extra setup

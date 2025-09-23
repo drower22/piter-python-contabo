@@ -65,31 +65,28 @@
         </section>
 
         <section class="card span-6">
-          <h2>Templates Meta (Abertura)</h2>
-          <p class="muted">Lista de templates aprovados na Meta (WABA).</p>
+          <h2>Templates Meta</h2>
+          <p class="muted">Lista de templates aprovados para abertura de conversa.</p>
           <div class="row">
-            <input id="adminToken2" placeholder="x-admin-token (opcional)" />
             <button class="btn" id="btnLoadMeta">Carregar</button>
           </div>
           <div id="metaTemplates" style="margin-top:10px; max-height:220px; overflow:auto;"></div>
         </section>
 
-        <section class="card span-6">
-          <h2>Templates Locais (Supabase)</h2>
-          <p class="muted">Templates pós-conversa definidos no catálogo local.</p>
-          <div class="row">
-            <button class="btn" id="btnLoadLocal">Carregar</button>
-          </div>
-          <div id="localTemplates" style="margin-top:10px; max-height:220px; overflow:auto;"></div>
-        </section>
+        
 
         <section class="card span-6">
           <h2>Enviar Template WhatsApp</h2>
-          <p class="muted">Teste rápido do endpoint de envio de template do WhatsApp.</p>
+          <p class="muted">Envie um template da Meta para abrir a conversa.</p>
           <label>To (ex: +5511999999999)</label>
           <input id="to" value="+55" inputmode="tel" pattern="^\+\d{8,15}$" title="Use formato +DDI... apenas números" />
-          <label>Template</label>
-          <input id="template" placeholder="nome_do_template" />
+          <label>Template (Meta)</label>
+          <div class="row">
+            <select id="templateSelect">
+              <option value="">Selecione ou clique em Carregar</option>
+            </select>
+            <button class="btn" id="btnLoadMetaSelect">Carregar</button>
+          </div>
           <label>Linguagem (ex: pt_BR)</label>
           <input id="lang" value="pt_BR" />
           <label>Variáveis (separadas por vírgula)</label>
@@ -101,22 +98,16 @@
         </section>
 
         <section class="card span-6">
-          <h2>Fluxos de Demo</h2>
-          <p class="muted">Dispare fluxos sem template (conversa aberta).</p>
-          <label>Admin Token (opcional)</label>
-          <input id="adminToken" placeholder="x-admin-token" />
-          <label>To (ex: +5511999999999)</label>
-          <input id="toTrigger" value="+55" inputmode="tel" pattern="^\+\d{8,15}$" title="Use formato +DDI... apenas números" />
-          <div class="actions" style="margin-top:8px; flex-wrap: wrap;">
-            <button class="btn" id="btnTriggerImport">Fluxo 1 • Importação concluída</button>
-            <button class="btn" id="btnTriggerLowStock">Fluxo 2 • Estoque baixo</button>
-            <button class="btn" id="btnTriggerCMV">Fluxo 3 • Desvio de CMV</button>
+          <h2>Catálogo Local (wa_buttons_catalog)</h2>
+          <p class="muted">Selecione um item ativo com template cadastrado.</p>
+          <div class="row">
+            <select id="localTemplateSelect">
+              <option value="">Selecione ou clique em Carregar</option>
+            </select>
+            <button class="btn" id="btnLoadLocalSelect">Carregar</button>
           </div>
-          <p class="muted" style="margin-top:12px;">Simular clique de botão (sem depender da Meta)</p>
-          <div class="actions" style="flex-wrap: wrap;">
-            <button class="btn secondary" id="btnSimSummary">Simular • Ver resumo agora</button>
-            <button class="btn secondary" id="btnSimLowStock">Simular • Ver itens críticos</button>
-            <button class="btn secondary" id="btnSimCMV">Simular • Ver análise rápida</button>
+          <div class="actions" style="margin-top:10px;">
+            <button class="btn" id="btnSendLocal">Enviar Local</button>
           </div>
         </section>
 
