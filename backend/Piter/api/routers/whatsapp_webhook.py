@@ -48,10 +48,14 @@ async def verify(
 
 @router.get("/ _debug/wa-env".replace(" ", ""))
 async def debug_wa_env():
-    token = os.getenv("WHATSAPP_VERIFY_TOKEN")
+    verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN")
     return {
-        "env_set": bool(token),
-        "len": len(token) if token else 0
+        "verify_token_set": bool(verify_token),
+        "verify_token_len": len(verify_token) if verify_token else 0,
+        "whatsapp_token_set": bool(os.getenv("WHATSAPP_TOKEN")),
+        "whatsapp_phone_id_set": bool(os.getenv("WHATSAPP_PHONE_ID")),
+        "whatsapp_waba_id_set": bool(os.getenv("WHATSAPP_WABA_ID")),
+        "graph_version": os.getenv("WHATSAPP_GRAPH_VERSION", "v19.0"),
     }
 
 
