@@ -249,14 +249,30 @@ def _ensure_contact(sb, wa_number: str, profile_name: str | None):
 
 
 def _ensure_open_conversation(sb, contact_id: str) -> str:
-    q = sb.table('wa_conversations').select('id').eq('contact_id', contact_id).eq('status', 'open').order('last_message_at', desc=True).maybe_single().execute()
-    if q.data and q.data.get('id'):
-        return q.data['id']
-    ins = sb.table('wa_conversations').insert({
-        'contact_id': contact_id,
-        'status': 'open'
-    }).select('id').single().execute()
-    return ins.data['id']
+    q = (
+        sb.table('wa_conversations')
+        .select('id')
+        .eq('contact_id', contact_id)
+        .eq('status', 'open')
+        .order('last_message_at', desc=True)
+        .maybe_single()
+        .execute()
+    )
+    qdata = getattr(q, 'data', None) or (q.get('data') if isinstance(q, dict) else None) or {}
+    if qdata.get('id'):
+        return qdata['id']
+
+    ins = (
+        sb.table('wa_conversations')
+        .insert({'contact_id': contact_id, 'status': 'open'})
+        .select('id')
+        .single()
+        .execute()
+    )
+    ins_data = getattr(ins, 'data', None) or (ins.get('data') if isinstance(ins, dict) else None) or {}
+    if not ins_data.get('id'):
+        raise RuntimeError("failed_to_create_conversation")
+    return ins_data['id']
 
 
 
