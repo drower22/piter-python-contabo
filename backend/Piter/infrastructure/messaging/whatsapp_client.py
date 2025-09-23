@@ -124,9 +124,18 @@ class WhatsAppClient:
         Returns:
             A resposta da API da Meta.
         """
+        # WhatsApp limits: up to 3 quick-reply buttons, each title up to 20 characters
+        safe_buttons: List[Dict[str, str]] = []
+        for b in (buttons or [])[:3]:
+            bid = str(b.get('id', 'btn'))[:256]
+            title = str(b.get('title', 'OK')).strip()
+            if len(title) > 20:
+                title = title[:20]
+            safe_buttons.append({"id": bid, "title": title})
+
         action_buttons = [
             {"type": "reply", "reply": {"id": b['id'], "title": b['title']}}
-            for b in buttons[:3]
+            for b in safe_buttons
         ]
         payload = {
             "messaging_product": "whatsapp",
