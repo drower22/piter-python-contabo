@@ -158,8 +158,8 @@ async def flow_import_consumption(req: ImportGenericBody):
     except Exception:
         md = {}
     items = (md or {}).get('mock_consumption') or []
-    text = _format_consumption_text(items)
-    resp = DemoFlowsService().client.send_text(to, text)
+    flows = DemoFlowsService()
+    resp = flows.send_consumption_list(to, items)
     return {"ok": True, "response": resp}
 
 
@@ -1002,6 +1002,15 @@ async def simulate_click(req: SimulateClickRequest, request: Request):
         elif btn_id == 'view_consumption':
             items = [{'nome': f'Insumo {i}', 'qtd': 10*i, 'unid': 'un'} for i in range(1,11)]
             resp = flows.send_consumption_list(to, items)
+            return JSONResponse(status_code=200, content={"ok": True, "routed": btn_id, "resp": resp})
+        elif btn_id == 'generate_consumption_pdf':
+            flows.send_consumption_pdf(to)
+            return JSONResponse(status_code=200, content={"ok": True, "routed": btn_id})
+        elif btn_id == 'view_consumption_history_7d':
+            resp = flows.send_consumption_history_7d(to)
+            return JSONResponse(status_code=200, content={"ok": True, "routed": btn_id, "resp": resp})
+        elif btn_id == 'explore_other_insights':
+            resp = flows.send_additional_options(to)
             return JSONResponse(status_code=200, content={"ok": True, "routed": btn_id, "resp": resp})
         elif btn_id == 'view_low_stock':
             items = [

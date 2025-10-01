@@ -61,6 +61,32 @@ class WhatsAppClient:
         response.raise_for_status()
         return response.json()
 
+    def send_document(
+        self,
+        to: str,
+        document_url: str,
+        filename: Optional[str] = None,
+        caption: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Envia um documento (PDF, etc.) para o destinatário."""
+        payload: Dict[str, Any] = {
+            "messaging_product": "whatsapp",
+            "to": to,
+            "type": "document",
+            "document": {
+                "link": document_url,
+            },
+        }
+        if filename:
+            payload["document"]["filename"] = filename
+        if caption:
+            payload["document"]["caption"] = caption
+
+        url = f"{self.base_url}/messages"
+        response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+        response.raise_for_status()
+        return response.json()
+
     def list_message_templates(self, waba_id: str, limit: int = 100, after: Optional[str] = None) -> Dict[str, Any]:
         """
         Lista templates aprovados da Meta para o WABA informado.
