@@ -1,3 +1,4 @@
+import json
 import os
 from fastapi import APIRouter, Request, Query, Body
 from fastapi.responses import PlainTextResponse, JSONResponse
@@ -517,7 +518,13 @@ async def list_meta_templates(request: Request, limit: int = 100, after: str | N
         waba_id = os.getenv("WHATSAPP_WABA_ID") or ""
         token = os.getenv("WHATSAPP_TOKEN") or ""
         if not waba_id or not token:
-            return JSONResponse(status_code=500, content={"error": "missing_waba_or_token"})
+            # Retorna alguns templates mockados para fins de demo/local
+            demo_items = [
+                {"name": "piter_resumo", "language": "pt_BR", "status": "APPROVED", "category": "MARKETING"},
+                {"name": "piter_cmv_alert", "language": "pt_BR", "status": "APPROVED", "category": "UTILITY"},
+                {"name": "piter_estatico", "language": "pt_BR", "status": "APPROVED", "category": "AUTH"},
+            ]
+            return {"items": demo_items, "warning": "using_demo_templates"}
         url = f"https://graph.facebook.com/{os.getenv('WHATSAPP_GRAPH_VERSION','v19.0')}/{waba_id}/message_templates"
         params = {"limit": limit}
         if after:
@@ -765,6 +772,75 @@ def _normalize_phone(num: str) -> str:
     return _re.sub(r"\D", "", (num or "").strip())
 
 
+def _coerce_dict(val):
+    if isinstance(val, dict):
+        return val
+    if isinstance(val, str):
+        try:
+            return json.loads(val)
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _summarize_message(msg_type: str, direction: str, payload: dict) -> dict:
+    payload = _coerce_dict(payload)
+    summary = {
+        "text": "",
+        "button_id": None,
+        "button_title": None,
+        "buttons": [],
+    }
+
+    try:
+        if direction == 'in':
+            if msg_type == 'text':
+                summary["text"] = (payload.get('text') or {}).get('body', '').strip()
+            elif msg_type == 'interactive':
+                interactive = payload.get('interactive') or {}
+                reply = interactive.get('button_reply') or interactive.get('list_reply') or {}
+                summary["button_id"] = (reply.get('id') or '').strip()
+                summary["button_title"] = (reply.get('title') or '').strip()
+                summary["text"] = summary["button_title"] or summary["button_id"] or '[interativo]'
+            elif msg_type == 'button':
+                btn = payload.get('button') or {}
+                summary["button_id"] = (btn.get('payload') or btn.get('id') or '').strip()
+                summary["button_title"] = (btn.get('text') or '').strip()
+                summary["text"] = summary["button_title"] or summary["button_id"] or '[botão]'
+            else:
+                summary["text"] = (payload.get('text') or {}).get('body', '').strip()
+        else:
+            if msg_type == 'text':
+                summary["text"] = (payload.get('text') or {}).get('body', '').strip()
+            elif msg_type == 'interactive':
+                interactive = payload.get('interactive') or {}
+                summary["text"] = ((interactive.get('body') or {}).get('text') or '').strip() or '[botões]'
+                action = interactive.get('action') or {}
+                buttons = []
+                for btn in (action.get('buttons') or []):
+                    if not isinstance(btn, dict):
+                        continue
+                    reply = btn.get('reply') if isinstance(btn.get('reply'), dict) else {}
+                    buttons.append({
+                        'id': (reply.get('id') or btn.get('id') or '').strip(),
+                        'title': (reply.get('title') or btn.get('title') or '').strip(),
+                    })
+                summary["buttons"] = buttons
+            elif msg_type == 'template':
+                template = payload.get('template') or {}
+                name = template.get('name') or ''
+                lang = (template.get('language') or {}).get('code') or ''
+                summary["text"] = f"Template {name} ({lang})".strip()
+            else:
+                summary["text"] = (payload.get('text') or {}).get('body', '').strip()
+    except Exception:
+        pass
+
+    if not summary["text"]:
+        summary["text"] = "[sem texto]"
+    return summary
+
+
 @router.post("/_admin/demo/trigger/importacao")
 async def trigger_importacao(req: TriggerRequest, request: Request):
     admin_token = os.getenv("ADMIN_TOKEN")
@@ -796,6 +872,101 @@ async def trigger_cmv(req: TriggerRequest, request: Request):
     flows = DemoFlowsService()
     resp = flows.start_cmv_deviation_flow(to)
     return JSONResponse(status_code=200, content={"ok": True, "response": resp})
+
+
+# ========================
+# Admin demo: conversation log helper
+# ========================
+@router.get("/_admin/demo/conversation-log")
+async def get_conversation_log(phone: str = Query(..., min_length=5)):
+    normalized = _normalize_phone(phone)
+    if not normalized:
+        return JSONResponse(status_code=400, content={"error": "invalid_phone"})
+
+    sb = get_supabase()
+    contact_id = _ensure_contact(sb, wa_number=normalized, profile_name=None)
+    if not contact_id:
+        return {
+            "phone": normalized,
+            "contact_id": None,
+            "conversation": None,
+            "messages": [],
+            "button_clicks": [],
+        }
+
+    conv_q = (
+        sb.table('wa_conversations')
+        .select('id,status,last_message_at,created_at')
+        .eq('contact_id', contact_id)
+        .order('last_message_at', desc=True)
+        .limit(1)
+        .maybe_single()
+        .execute()
+    )
+    conv_data = getattr(conv_q, 'data', None) or (conv_q.get('data') if isinstance(conv_q, dict) else None) or {}
+    if not conv_data.get('id'):
+        return {
+            "phone": normalized,
+            "contact_id": contact_id,
+            "conversation": None,
+            "messages": [],
+            "button_clicks": [],
+        }
+
+    conversation_id = conv_data['id']
+
+    msgs_q = (
+        sb.table('wa_messages')
+        .select('id,direction,type,json_payload,wa_message_id,created_at')
+        .eq('conversation_id', conversation_id)
+        .order('created_at', desc=False)
+        .limit(200)
+        .execute()
+    )
+    msgs_data = getattr(msgs_q, 'data', None) or (msgs_q.get('data') if isinstance(msgs_q, dict) else None) or []
+
+    messages = []
+    for item in msgs_data:
+        payload = item.get('json_payload') or {}
+        summary = _summarize_message(item.get('type') or '', item.get('direction') or '', payload)
+        messages.append({
+            'id': item.get('id'),
+            'wa_message_id': item.get('wa_message_id'),
+            'direction': item.get('direction'),
+            'type': item.get('type'),
+            'text': summary.get('text'),
+            'button_id': summary.get('button_id'),
+            'button_title': summary.get('button_title'),
+            'buttons': summary.get('buttons'),
+            'created_at': item.get('created_at'),
+        })
+
+    clicks_q = (
+        sb.table('wa_button_clicks')
+        .select('id,button_id,button_title,clicked_at')
+        .eq('conversation_id', conversation_id)
+        .order('clicked_at', desc=False)
+        .limit(200)
+        .execute()
+    )
+    clicks_data = getattr(clicks_q, 'data', None) or (clicks_q.get('data') if isinstance(clicks_q, dict) else None) or []
+    button_clicks = [
+        {
+            'id': item.get('id'),
+            'button_id': item.get('button_id'),
+            'button_title': item.get('button_title'),
+            'clicked_at': item.get('clicked_at'),
+        }
+        for item in clicks_data
+    ]
+
+    return {
+        "phone": normalized,
+        "contact_id": contact_id,
+        "conversation": conv_data,
+        "messages": messages,
+        "button_clicks": button_clicks,
+    }
 
 
 # ========================

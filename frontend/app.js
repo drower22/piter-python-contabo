@@ -1,272 +1,468 @@
-async function loadLocalCatalog() {
-  try {
-    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/local/catalog`);
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${JSON.stringify(data)}`);
-    const items = (data.items||[]);
-    items.sort((a,b) => String(a.title || a.template_name || a.id).localeCompare(String(b.title || b.template_name || b.id)));
-    if (localSelect) {
-      localSelect.innerHTML = '<option value="">Selecione um item</option>' +
-        items.map(x => {
-          const tname = (x.template_name || '').trim();
-          const lang = (x.template_lang || 'pt_BR').trim();
-          const label = x.title || tname || x.id;
-          const suffix = tname ? ` (${lang})` : (x.response_type ? ` [${x.response_type}]` : '');
-          return `<option value="${x.id}">${label}${suffix}</option>`;
-        }).join('');
-    }
-    log('[local-catalog]', resp.status, items.length);
-  } catch (e) {
-    log('[local-catalog][error]', e.message || e);
-  }
-}
-
-async function sendLocalSelected() {
-  const to = (toTemplateEl?.value || '').trim();
-  if (!to) return log('[local-send][warn] preencha To');
-  const id = localSelect?.value || '';
-  if (!id) return log('[local-send][warn] selecione um item');
-  try {
-    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/local/send`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ to, id })
-    });
-    const data = await resp.json().catch(() => ({}));
-    log('[local-send]', resp.status, data);
-  } catch (e) {
-    log('[local-send][error]', e.message || e);
-  }
-}
-// Module script
 const API_BASE = (window.API_BASE || 'https://api.pitzei.com.br').replace(/\/$/, '');
+
 const logEl = document.getElementById('log');
 const healthBtn = document.getElementById('btnHealth');
 const healthResult = document.getElementById('healthResult');
-const sendBtn = document.getElementById('btnSendTemplate');
 const clearBtn = document.getElementById('btnClearLog');
+const copyBtn = document.getElementById('btnCopyLog');
+
+const metaPhoneEl = document.getElementById('metaPhone');
+const metaLangEl = document.getElementById('metaLang');
+const metaTemplateSelect = document.getElementById('metaTemplateSelect');
+const metaVariablesEl = document.getElementById('metaVariables');
 const btnLoadMeta = document.getElementById('btnLoadMeta');
-const metaTemplatesEl = document.getElementById('metaTemplates');
-const btnLoadMetaSelect = document.getElementById('btnLoadMetaSelect');
-const templateSelect = document.getElementById('templateSelect');
-const localSelect = document.getElementById('localTemplateSelect');
-const btnLoadLocalSelect = document.getElementById('btnLoadLocalSelect');
-const btnSendLocal = document.getElementById('btnSendLocal');
-const templateAdvanced = document.getElementById('templateAdvanced');
-const localPreview = document.getElementById('localPreview');
+const btnSendMetaTemplate = document.getElementById('btnSendMetaTemplate');
+const metaStatusEl = document.getElementById('metaStatus');
+const metaTemplatesListEl = document.getElementById('metaTemplatesList');
+
+const registerNameEl = document.getElementById('registerName');
+const registerWhatsappEl = document.getElementById('registerWhatsapp');
+const registerResultEl = document.getElementById('registerResult');
+const registerDetailsEl = document.getElementById('registerDetails');
+const btnRegister = document.getElementById('btnRegister');
+
+const conversationPhoneEl = document.getElementById('conversationPhone');
+const adminTokenEl = document.getElementById('adminToken');
+const flowStatusEl = document.getElementById('flowStatus');
+
+const btnFlowImportStart = document.getElementById('btnFlowImportStart');
+const btnFlowImportSummary = document.getElementById('btnFlowImportSummary');
+const btnFlowImportConsumption = document.getElementById('btnFlowImportConsumption');
+const btnFlowLowStock = document.getElementById('btnFlowLowStock');
+const btnFlowCmv = document.getElementById('btnFlowCmv');
+
+const btnRefreshConversation = document.getElementById('btnRefreshConversation');
+const conversationEmptyEl = document.getElementById('conversationEmpty');
+const conversationTimelineEl = document.getElementById('conversationTimeline');
+const buttonClicksSectionEl = document.getElementById('buttonClicksSection');
+const buttonClicksListEl = document.getElementById('buttonClicksList');
 
 const label = document.getElementById('apiBaseLabel');
 if (label) label.textContent = API_BASE;
-// Inputs
-const toTemplateEl = document.getElementById('to');
-
-// Novo botão de copiar
-const copyBtn = document.getElementById('copyLog');
-if (copyBtn) {
-  copyBtn.addEventListener('click', () => {
-    navigator.clipboard.writeText(logEl.textContent)
-      .then(() => {
-        copyBtn.textContent = 'Copiado!';
-        setTimeout(() => copyBtn.textContent = 'Copiar Log', 2000);
-      })
-      .catch(err => console.error('Failed to copy:', err));
-  });
-}
-
-// ===============
-// Templates: Utils
-// ===============
-function renderTemplatesList(el, items, sourceLabel) {
-  if (!el) return;
-  if (!items || !items.length) {
-    el.innerHTML = '<div class="muted">Nenhum template encontrado.</div>';
-    return;
-  }
-  const html = items.map((t) => {
-    const tname = t.name || t.template_name;
-    const lang = t.language || t.lang_code || 'pt_BR';
-    const status = t.status ? `<span class="badge">${t.status}</span>` : '';
-    const category = t.category ? `<span class="badge">${t.category}</span>` : '';
-    return `
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; border:1px solid var(--border); border-radius:10px; padding:8px; margin:6px 0;">
-        <div style="font-size:13px">
-          <div><strong>${tname}</strong> <span class="badge">${lang}</span> ${status} ${category}</div>
-          <div class="muted">${sourceLabel}</div>
-        </div>
-        <button class="btn" data-tname="${tname}" data-lang="${lang}">Enviar</button>
-      </div>`;
-  }).join('');
-  el.innerHTML = html;
-  el.querySelectorAll('button[data-tname]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tn = btn.getAttribute('data-tname');
-      const lg = btn.getAttribute('data-lang');
-      sendTemplateQuick(tn, lg);
-    });
-  });
-}
-
-async function sendTemplateQuick(templateName, langCode, toOverride) {
-  const to = (toOverride || toTemplateEl?.value || '').trim();
-  if (!to || !templateName || !langCode) {
-    log('[send-quick][warn] preencha To/Template/Lang');
-    return;
-  }
-  try {
-    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/send-template`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ to, template_name: templateName, lang_code: langCode, variables: [] })
-    });
-    const data = await resp.json().catch(() => ({}));
-    log('[send-quick]', templateName, langCode, resp.status, data);
-    // no-op
-  } catch (e) {
-    log('[send-quick][error]', e.message || e);
-  }
-}
-
-async function loadMetaTemplates() {
-  try {
-    const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/_admin/meta/templates?limit=100`);
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${JSON.stringify(data)}`);
-    renderTemplatesList(metaTemplatesEl, data.items || [], 'Meta');
-    log('[meta-templates]', resp.status, (data.items||[]).length);
-
-    // Preenche o select de templates Meta
-    if (templateSelect) {
-      const items = data.items || [];
-      items.sort((a,b) => String(a.name).localeCompare(String(b.name)));
-      templateSelect.innerHTML = '<option value="">Selecione um template</option>' +
-        items.map(t => `<option value="${t.name}::${t.language}">${t.name} (${t.language})</option>`).join('');
-    }
-  } catch (e) {
-    log('[meta-templates][error]', e.message || e);
-  }
-}
 
 function log(...args) {
-  const line = args.map(v => typeof v === 'string' ? v : JSON.stringify(v, null, 2)).join(' ');
+  if (!logEl) return;
+  const line = args
+    .map((v) => (typeof v === 'string' ? v : JSON.stringify(v, null, 2)))
+    .join(' ');
   logEl.textContent += `\n${line}`;
   logEl.scrollTop = logEl.scrollHeight;
-  
-  // Limita o tamanho do log para evitar consumo excessivo de memória
-  if (logEl.textContent.length > 10000) {
-    logEl.textContent = logEl.textContent.slice(-8000);
+  if (logEl.textContent.length > 12000) {
+    logEl.textContent = logEl.textContent.slice(-9000);
+  }
+}
+
+function setBadge(el, text, variant) {
+  if (!el) return;
+  el.textContent = text || '';
+  const classes = ['badge'];
+  if (variant === 'ok') classes.push('ok');
+  if (variant === 'err') classes.push('err');
+  el.className = classes.join(' ');
+}
+
+function sanitizePhone(raw) {
+  return (raw || '').replace(/\D/g, '');
+}
+
+function parseVariables(raw) {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+function buildAdminHeaders(required) {
+  const token = (adminTokenEl?.value || '').trim();
+  if (required && !token) {
+    log('[warn] endpoint exige x-admin-token');
+  }
+  return token ? { 'x-admin-token': token } : {};
+}
+
+async function registerUser() {
+  const name = (registerNameEl?.value || '').trim();
+  const whatsapp = (registerWhatsappEl?.value || '').trim();
+  if (!name || !whatsapp) {
+    setBadge(registerResultEl, 'Informe nome e WhatsApp', 'err');
+    return;
+  }
+
+  const body = new URLSearchParams();
+  body.append('name', name);
+  body.append('whatsapp', whatsapp);
+
+  try {
+    const resp = await fetch(`${API_BASE}/forms/signup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+    const data = await resp.json().catch(() => ({}));
+
+    if (resp.ok) {
+      setBadge(registerResultEl, 'Conta criada', 'ok');
+      registerDetailsEl.textContent = `account_id: ${data.account_id} • user_id: ${data.user_id}`;
+      if (conversationPhoneEl && whatsapp) {
+        conversationPhoneEl.value = whatsapp;
+      }
+      log('[signup][ok]', data);
+    } else {
+      setBadge(registerResultEl, `ERR ${resp.status}`, 'err');
+      registerDetailsEl.textContent = data?.error || 'Falha no cadastro';
+      log('[signup][err]', resp.status, data);
+    }
+  } catch (e) {
+    setBadge(registerResultEl, 'Erro', 'err');
+    registerDetailsEl.textContent = e.message || String(e);
+    log('[signup][error]', e.message || e);
   }
 }
 
 async function checkHealth() {
   try {
     const resp = await fetch(`${API_BASE}/health`);
-    const data = await resp.json();
-    healthResult.textContent = resp.ok ? 'OK' : `ERR ${resp.status}`;
-    healthResult.className = 'badge ' + (resp.ok ? 'ok' : 'err');
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok) {
+      setBadge(healthResult, 'OK', 'ok');
+    } else {
+      setBadge(healthResult, `ERR ${resp.status}`, 'err');
+    }
     log('[health]', data);
   } catch (e) {
-    healthResult.textContent = 'ERR';
-    healthResult.className = 'badge err';
+    setBadge(healthResult, 'ERR', 'err');
     log('[health][error]', e.message || e);
   }
 }
 
-async function sendTemplate() {
-  const to = toTemplateEl.value.trim();
-  // Lê do dropdown (formato name::lang). Se vazio, usa campos manuais
-  const selVal = templateSelect?.value || '';
-  let template = '';
-  let lang = '';
-  if (selVal) {
-    const parts = selVal.split('::');
-    template = (parts[0] || '').trim();
-    lang = (parts[1] || '').trim();
-  } else {
-    template = (document.getElementById('template')?.value || '').trim();
-    lang = (document.getElementById('lang')?.value || 'pt_BR').trim();
-  }
-  const varsRaw = document.getElementById('vars').value.trim();
-  const variables = varsRaw ? varsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+const FLOW_ENDPOINTS = {
+  importStart: {
+    url: '/_webhooks/whatsapp/_admin/demo/trigger/importacao',
+    admin: true,
+  },
+  importSummary: {
+    url: '/_webhooks/whatsapp/_flows/import/summary',
+    admin: false,
+  },
+  importConsumption: {
+    url: '/_webhooks/whatsapp/_flows/import/consumption',
+    admin: false,
+  },
+  lowStock: {
+    url: '/_webhooks/whatsapp/_admin/demo/trigger/estoque_baixo',
+    admin: true,
+  },
+  cmv: {
+    url: '/_webhooks/whatsapp/_admin/demo/trigger/cmv',
+    admin: true,
+  },
+};
 
-  if (!to || !template) {
-    log('[send-template][warn] preencha To e Template');
+async function triggerFlow(kind) {
+  const conf = FLOW_ENDPOINTS[kind];
+  if (!conf) return;
+
+  const phoneRaw = conversationPhoneEl?.value || '';
+  const phone = sanitizePhone(phoneRaw);
+  if (!phone) {
+    setBadge(flowStatusEl, 'Informe o número destino', 'err');
     return;
   }
+
+  const headers = {
+    'content-type': 'application/json',
+    ...buildAdminHeaders(conf.admin),
+  };
+
+  try {
+    const resp = await fetch(`${API_BASE}${conf.url}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ to: phone }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok) {
+      setBadge(flowStatusEl, 'Fluxo disparado', 'ok');
+      log(`[flow][${kind}]`, resp.status, data);
+      refreshConversation(false, phone);
+    } else {
+      setBadge(flowStatusEl, `ERR ${resp.status}`, 'err');
+      log(`[flow][${kind}][err]`, resp.status, data);
+    }
+  } catch (e) {
+    setBadge(flowStatusEl, 'Erro ao disparar', 'err');
+    log(`[flow][${kind}][error]`, e.message || e);
+  }
+}
+
+function renderMetaTemplates(items) {
+  if (!metaTemplatesListEl) return;
+  if (!items || !items.length) {
+    metaTemplatesListEl.style.display = 'none';
+    metaTemplatesListEl.innerHTML = '';
+    return;
+  }
+
+  metaTemplatesListEl.style.display = '';
+  metaTemplatesListEl.innerHTML = items
+    .map((item) => {
+      const status = item.status ? `<span class=\"badge\">${item.status}</span>` : '';
+      const category = item.category ? `<span class=\"badge\">${item.category}</span>` : '';
+      const preview = (item.components || [])
+        .map((c) => `${c.type || ''}: ${(c.text || '').slice(0, 60)}`)
+        .join('<br />');
+      return `
+        <div class="template-item">
+          <strong>${item.name}</strong>
+          <div class="muted">${item.language || 'pt_BR'} ${status} ${category}</div>
+          ${preview ? `<div class="small">${preview}</div>` : ''}
+          <div class="template-actions">
+            <button class="btn secondary" data-tpl="${item.name}" data-lang="${item.language || 'pt_BR'}">Enviar</button>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+
+  metaTemplatesListEl.querySelectorAll('button[data-tpl]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tpl = btn.getAttribute('data-tpl');
+      const lang = btn.getAttribute('data-lang');
+      if (metaTemplateSelect) {
+        metaTemplateSelect.value = `${tpl}::${lang}`;
+      }
+      sendMetaTemplate(tpl, lang);
+    });
+  });
+}
+
+async function loadMetaTemplates() {
+  setBadge(metaStatusEl, 'Carregando...', null);
+  try {
+    const resp = await fetch(
+      `${API_BASE}/_webhooks/whatsapp/_admin/meta/templates?limit=100`,
+      {
+        headers: {
+          ...buildAdminHeaders(true),
+        },
+      }
+    );
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      setBadge(metaStatusEl, `ERR ${resp.status}`, 'err');
+      log('[meta][err]', resp.status, data);
+      return;
+    }
+
+    const items = Array.isArray(data.items) ? data.items : [];
+    if (data.warning) {
+      setBadge(metaStatusEl, `${items.length} templates demo`, 'ok');
+      log('[meta][warn]', data.warning);
+    } else {
+      setBadge(metaStatusEl, `${items.length} templates`, 'ok');
+    }
+
+    if (metaTemplateSelect) {
+      const options = ['<option value="">Selecione um template</option>'].concat(
+        items.map((item) => `<option value="${item.name}::${item.language}">${item.name} (${item.language})</option>`)
+      );
+      metaTemplateSelect.innerHTML = options.join('');
+    }
+
+    renderMetaTemplates(items);
+  } catch (e) {
+    setBadge(metaStatusEl, 'Erro ao carregar', 'err');
+    log('[meta][error]', e.message || e);
+  }
+}
+
+async function sendMetaTemplate(templateOverride, langOverride) {
+  const phoneRaw = metaPhoneEl?.value || '';
+  const phone = sanitizePhone(phoneRaw);
+  if (!phone) {
+    setBadge(metaStatusEl, 'Informe o número destino', 'err');
+    return;
+  }
+
+  let templateName = templateOverride;
+  let lang = langOverride;
+
+  if (!templateName || !lang) {
+    const selected = metaTemplateSelect?.value || '';
+    if (!selected) {
+      setBadge(metaStatusEl, 'Selecione um template', 'err');
+      return;
+    }
+    const [name, language] = selected.split('::');
+    templateName = (name || '').trim();
+    lang = (language || '').trim();
+  }
+
+  const language = lang || metaLangEl?.value || 'pt_BR';
+  const variables = parseVariables(metaVariablesEl?.value || '');
 
   try {
     const resp = await fetch(`${API_BASE}/_webhooks/whatsapp/send-template`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        // 'x-admin-token': 'SEU_TOKEN', // opcional: defina se exigido no backend
+        ...buildAdminHeaders(true),
       },
       body: JSON.stringify({
-        to,
-        template_name: template,
-        lang_code: lang,
-        variables
-      })
+        to: phone,
+        template_name: templateName,
+        lang_code: language,
+        variables,
+      }),
     });
     const data = await resp.json().catch(() => ({}));
-    log('[send-template]', resp.status, data);
-    // no-op
+    if (resp.ok) {
+      setBadge(metaStatusEl, 'Template enviado', 'ok');
+      log('[meta][send][ok]', templateName, language, data);
+      refreshConversation(false, phone);
+    } else {
+      setBadge(metaStatusEl, `ERR ${resp.status}`, 'err');
+      log('[meta][send][err]', resp.status, data);
+    }
   } catch (e) {
-    log('[send-template][error]', e.message || e);
+    setBadge(metaStatusEl, 'Erro ao enviar', 'err');
+    log('[meta][send][error]', e.message || e);
   }
 }
 
-// Novo: Conexão SSE para logs do servidor
-function connectLogStream() {
-  const logStream = new EventSource(`${API_BASE}/_admin/logs/stream`);
-  
-  logStream.addEventListener('message', (e) => {
-    log('[SERVER]', e.data);
-  });
+function renderMessage(item) {
+  const direction = item.direction === 'out' ? 'message-out' : 'message-in';
+  const div = document.createElement('div');
+  div.className = `message ${direction}`;
 
-  logStream.addEventListener('error', (e) => {
-    console.error('Log stream error:', e);
-    setTimeout(connectLogStream, 5000); // Reconecta após 5 segundos
+  const meta = document.createElement('div');
+  meta.className = 'message-meta';
+  const when = item.created_at ? new Date(item.created_at).toLocaleString('pt-BR', { hour12: false }) : '';
+  meta.textContent = `${item.direction === 'out' ? 'Piter' : 'Cliente'} • ${item.type || 'unknown'} ${when ? `• ${when}` : ''}`;
+  div.appendChild(meta);
+
+  const bubble = document.createElement('div');
+  bubble.className = 'message-bubble';
+  bubble.textContent = item.text || '[sem texto]';
+  div.appendChild(bubble);
+
+  if (Array.isArray(item.buttons) && item.buttons.length) {
+    const btns = document.createElement('div');
+    btns.className = 'message-buttons';
+    item.buttons.forEach((btn) => {
+      const span = document.createElement('span');
+      span.textContent = `${btn.title || btn.id || 'botão'}`;
+      btns.appendChild(span);
+    });
+    div.appendChild(btns);
+  }
+
+  if (item.button_id && item.direction === 'in') {
+    const choice = document.createElement('div');
+    choice.className = 'message-buttons';
+    const span = document.createElement('span');
+    span.textContent = `Botão: ${item.button_title || item.button_id}`;
+    choice.appendChild(span);
+    div.appendChild(choice);
+  }
+
+  return div;
+}
+
+function renderConversationView(data) {
+  if (!conversationTimelineEl || !conversationEmptyEl) return;
+
+  const messages = Array.isArray(data?.messages) ? data.messages : [];
+  conversationTimelineEl.innerHTML = '';
+
+  if (!messages.length) {
+    conversationEmptyEl.style.display = '';
+  } else {
+    conversationEmptyEl.style.display = 'none';
+    messages.forEach((msg) => {
+      conversationTimelineEl.appendChild(renderMessage(msg));
+    });
+  }
+
+  const clicks = Array.isArray(data?.button_clicks) ? data.button_clicks : [];
+  if (clicks.length && buttonClicksSectionEl && buttonClicksListEl) {
+    buttonClicksSectionEl.style.display = '';
+    buttonClicksListEl.innerHTML = '';
+    clicks.forEach((item) => {
+      const li = document.createElement('li');
+      const when = item.clicked_at ? new Date(item.clicked_at).toLocaleString('pt-BR', { hour12: false }) : '';
+      li.textContent = `${item.button_title || item.button_id || 'botão'} • ${when}`;
+      buttonClicksListEl.appendChild(li);
+    });
+  } else if (buttonClicksSectionEl) {
+    buttonClicksSectionEl.style.display = 'none';
+  }
+}
+
+async function refreshConversation(manual = false, phoneOverride) {
+  const phoneInput = phoneOverride || sanitizePhone(conversationPhoneEl?.value || '');
+  if (!phoneInput) {
+    if (manual) log('[conversation][warn] informe o número destino');
+    renderConversationView({ messages: [], button_clicks: [] });
+    return;
+  }
+
+  const url = `${API_BASE}/_webhooks/whatsapp/_admin/demo/conversation-log?phone=${encodeURIComponent(phoneInput)}`;
+  try {
+    const resp = await fetch(url, {
+      headers: buildAdminHeaders(false),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      log('[conversation][err]', resp.status, data);
+      return;
+    }
+    renderConversationView(data);
+    if (manual) log('[conversation][ok]', data?.messages?.length || 0, 'mensagens');
+  } catch (e) {
+    log('[conversation][error]', e.message || e);
+  }
+}
+
+function connectLogStream() {
+  try {
+    const logStream = new EventSource(`${API_BASE}/_admin/logs/stream`);
+    logStream.addEventListener('message', (e) => {
+      log('[SERVER]', e.data);
+    });
+    logStream.addEventListener('error', () => {
+      setTimeout(connectLogStream, 6000);
+    });
+  } catch (e) {
+    log('[log-stream][error]', e.message || e);
+  }
+}
+
+if (btnRegister) btnRegister.addEventListener('click', registerUser);
+if (healthBtn) healthBtn.addEventListener('click', checkHealth);
+if (clearBtn && logEl) clearBtn.addEventListener('click', () => (logEl.textContent = ''));
+if (copyBtn && logEl) {
+  copyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(logEl.textContent || '');
+      copyBtn.textContent = 'Copiado!';
+      setTimeout(() => (copyBtn.textContent = 'Copiar'), 2000);
+    } catch (err) {
+      log('[clipboard][error]', err.message || err);
+    }
   });
 }
 
-// Inicia quando o DOM estiver pronto
+if (btnFlowImportStart) btnFlowImportStart.addEventListener('click', () => triggerFlow('importStart'));
+if (btnFlowImportSummary) btnFlowImportSummary.addEventListener('click', () => triggerFlow('importSummary'));
+if (btnFlowImportConsumption) btnFlowImportConsumption.addEventListener('click', () => triggerFlow('importConsumption'));
+if (btnFlowLowStock) btnFlowLowStock.addEventListener('click', () => triggerFlow('lowStock'));
+if (btnFlowCmv) btnFlowCmv.addEventListener('click', () => triggerFlow('cmv'));
+if (btnRefreshConversation) btnRefreshConversation.addEventListener('click', () => refreshConversation(true));
+if (btnLoadMeta) btnLoadMeta.addEventListener('click', loadMetaTemplates);
+if (btnSendMetaTemplate) btnSendMetaTemplate.addEventListener('click', () => sendMetaTemplate());
+
 document.addEventListener('DOMContentLoaded', () => {
   connectLogStream();
-  if (templateAdvanced) templateAdvanced.style.display = '';
-  if (templateSelect) templateSelect.addEventListener('change', () => {
-    if (!templateAdvanced) return;
-    const sel = templateSelect.value;
-    templateAdvanced.style.display = sel ? 'none' : '';
-  });
-  if (localSelect) localSelect.addEventListener('change', renderLocalPreview);
 });
-
-// Eventos
-if (healthBtn) healthBtn.addEventListener('click', checkHealth);
-if (sendBtn) sendBtn.addEventListener('click', sendTemplate);
-if (clearBtn) clearBtn.addEventListener('click', () => (logEl.textContent = ''));
-if (btnLoadMeta) btnLoadMeta.addEventListener('click', loadMetaTemplates);
-if (btnLoadMetaSelect) btnLoadMetaSelect.addEventListener('click', loadMetaTemplates);
-if (btnLoadLocalSelect) btnLoadLocalSelect.addEventListener('click', loadLocalCatalog);
-if (btnSendLocal) btnSendLocal.addEventListener('click', sendLocalSelected);
-
-// Inicializa
-// no extra setup
-
-function renderLocalPreview() {
-  if (!localPreview) return;
-  const id = localSelect?.value || '';
-  if (!id) { localPreview.textContent = ''; return; }
-  // Usa a última lista carregada? fazemos uma requisição rápida por id
-  fetch(`${API_BASE}/_webhooks/whatsapp/_admin/local/catalog`)
-    .then(r => r.json()).then(d => {
-      const item = (d.items||[]).find(x => x.id === id);
-      if (!item) { localPreview.textContent = ''; return; }
-      const tname = item.template_name || '';
-      const lang = item.template_lang || 'pt_BR';
-      const tipo = item.response_type || (tname ? 'template' : 'text');
-      const nb = Array.isArray(item.next_buttons) ? item.next_buttons : [];
-      const nbTxt = nb.length ? nb.map(b=>`• ${b.title} (${b.id})`).join(' | ') : '-';
-      localPreview.textContent = `Tipo: ${tipo} ${tname?`| Template: ${tname} (${lang})`:''} | Próximos botões: ${nbTxt}`;
-    }).catch(()=>{});
-}

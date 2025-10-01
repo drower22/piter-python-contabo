@@ -3,123 +3,408 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Piter • Dashboard</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>Piter • Demo Frontend</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <style>
-      /* Light theme with WhatsApp colors */
       :root {
-        --bg:#f6f7f8;
-        --panel:#ffffff;
-        --text:#111827;
-        --muted:#6b7280;
-        --brand:#25D366;   /* WhatsApp green */
-        --brand-dark:#075E54; /* WhatsApp dark green */
-        --ok:#22c55e;
-        --err:#ef4444;
-        --border:#e5e7eb;
+        --bg: #f6f7f8;
+        --panel: #ffffff;
+        --text: #111827;
+        --muted: #6b7280;
+        --brand: #25d366;
+        --brand-dark: #075e54;
+        --ok: #22c55e;
+        --err: #ef4444;
+        --border: #e5e7eb;
       }
-      * { box-sizing: border-box; }
-      body { margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#f6f7f8; color:var(--text); font-weight: 400; }
-      header { padding:20px 24px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border); background:#ffffff; position:sticky; top:0; }
-      .brand { font-weight:800; letter-spacing:.3px; color:var(--brand-dark); }
-      .container { max-width: 960px; margin: 32px auto; padding: 0 20px; }
-      .grid { display:grid; gap:16px; grid-template-columns: repeat(12, 1fr); }
-      .card { grid-column: span 12; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:20px; box-shadow: 0 6px 18px rgba(0,0,0,.06); }
-      @media (min-width: 860px) { .span-6 { grid-column: span 6; } }
-      h2 { margin: 0 0 8px; font-size: 18px; }
-      p.muted { margin:0 0 16px; color:var(--muted); font-size: 14px; }
-      button, input, select, textarea { font: inherit; }
-      input, select, textarea { width:100%; padding:12px 14px; border-radius:10px; border:1px solid var(--border); background:#ffffff; color:#111827; outline:none; }
-      input::placeholder, textarea::placeholder { color:#9ca3af; }
-      label { display:block; font-size:12px; color:#374151; margin:10px 0 6px; }
-      .row { display:flex; gap:12px; }
-      .row > * { flex:1; }
-      .actions { display:flex; gap:12px; align-items:center; }
-      .btn { padding:10px 16px; border-radius:10px; border:1px solid #16a34a33; background: linear-gradient(180deg, var(--brand), #1fcc59); color:white; cursor:pointer; box-shadow: 0 6px 18px rgba(37,211,102,.35); }
-      .btn.secondary { background:#e5f7ec; border-color:#b7e9c8; color:#0b5c2f; }
-      .log { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; background:#0b1e13; border:1px solid #134e2d; border-radius:10px; padding:12px; color:#d1fae5; max-height:260px; overflow:auto; }
-      .badge { padding:3px 8px; border-radius:999px; font-size:11px; background:#e9fbf0; border:1px solid #b7e9c8; color:#0b5c2f; }
-      .ok { color: var(--ok); }
-      .err { color: var(--err); }
-      table { width:100%; border-collapse: collapse; }
-      th, td { padding:10px 8px; border-bottom:1px solid var(--border); text-align:left; font-size:14px; }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      header {
+        padding: 20px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--border);
+        background: #ffffff;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+      .brand {
+        font-weight: 800;
+        letter-spacing: 0.3px;
+        color: var(--brand-dark);
+      }
+      .container {
+        max-width: 1100px;
+        margin: 32px auto;
+        padding: 0 20px;
+      }
+      .grid {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: repeat(12, 1fr);
+      }
+      .card {
+        grid-column: span 12;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 22px;
+        box-shadow: 0 8px 22px rgba(7, 94, 84, 0.08);
+      }
+      @media (min-width: 960px) {
+        .span-6 {
+          grid-column: span 6;
+        }
+      }
+      h2 {
+        margin: 0 0 8px;
+        font-size: 18px;
+      }
+      h3 {
+        margin: 0 0 6px;
+        font-size: 16px;
+      }
+      p.muted {
+        margin: 0 0 18px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+      input,
+      select {
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: #ffffff;
+        color: #111827;
+        outline: none;
+      }
+      input::placeholder {
+        color: #9ca3af;
+      }
+      label {
+        display: block;
+        font-size: 12px;
+        color: #374151;
+        margin-bottom: 6px;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+      }
+      .field {
+        flex: 1 1 240px;
+      }
+      .actions {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .btn {
+        padding: 11px 18px;
+        border-radius: 12px;
+        border: 1px solid rgba(37, 211, 102, 0.25);
+        background: linear-gradient(180deg, var(--brand), #1fcc59);
+        color: white;
+        cursor: pointer;
+        font-weight: 600;
+        transition: transform 0.1s ease;
+        box-shadow: 0 6px 18px rgba(37, 211, 102, 0.35);
+      }
+      .btn:hover {
+        transform: translateY(-1px);
+      }
+      .btn.secondary {
+        background: #e5f7ec;
+        border-color: #b7e9c8;
+        color: #0b5c2f;
+        box-shadow: none;
+      }
+      .badge {
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        background: #e9fbf0;
+        border: 1px solid #b7e9c8;
+        color: #0b5c2f;
+        min-height: 22px;
+        display: inline-flex;
+        align-items: center;
+      }
+      .badge.ok {
+        background: #dcfce7;
+        border-color: #86efac;
+      }
+      .badge.err {
+        background: #fee2e2;
+        border-color: #fca5a5;
+        color: #b91c1c;
+      }
+      .log {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+        font-size: 12px;
+        background: #0b1e13;
+        border: 1px solid #134e2d;
+        border-radius: 12px;
+        padding: 14px;
+        color: #d1fae5;
+        max-height: 280px;
+        overflow: auto;
+        white-space: pre-wrap;
+      }
+      .small {
+        font-size: 12px;
+      }
+      .flow-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      .flow-buttons .btn {
+        flex: 1 1 230px;
+      }
+      .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .card-actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .timeline {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        margin-top: 12px;
+      }
+      .message {
+        display: flex;
+        flex-direction: column;
+        max-width: 80%;
+        position: relative;
+      }
+      .message-in {
+        align-self: flex-start;
+      }
+      .message-out {
+        align-self: flex-end;
+      }
+      .message-meta {
+        font-size: 11px;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      .message-bubble {
+        padding: 12px 14px;
+        border-radius: 16px;
+        line-height: 1.45;
+        font-size: 14px;
+        word-break: break-word;
+      }
+      .message-in .message-bubble {
+        background: #f3f4f6;
+        color: var(--text);
+      }
+      .message-out .message-bubble {
+        background: var(--brand-dark);
+        color: #ffffff;
+      }
+      .message-buttons {
+        margin-top: 8px;
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .message-buttons span {
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 11px;
+        background: #f0fdf4;
+        color: var(--brand-dark);
+      }
+      .button-clicks {
+        margin-top: 24px;
+      }
+      .button-clicks h3 {
+        font-size: 14px;
+        margin: 0 0 8px;
+      }
+      .button-clicks ul {
+        list-style: disc;
+        margin: 0;
+        padding-left: 20px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .template-list {
+        margin-top: 14px;
+        max-height: 220px;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px;
+        font-size: 13px;
+        background: #fbfcff;
+      }
+      .template-item {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 8px;
+        border-radius: 10px;
+        border: 1px solid #e2e8f0;
+        margin-bottom: 8px;
+      }
+      .template-item:last-child {
+        margin-bottom: 0;
+      }
+      .template-item strong {
+        font-size: 13px;
+      }
+      .template-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
     </style>
   </head>
   <body>
     <header>
-      <div class="brand">Piter • Frontend</div>
+      <div class="brand">Piter • Demo Frontend</div>
       <div><span class="badge" id="apiBaseLabel"></span></div>
     </header>
 
     <div class="container">
       <div class="grid">
         <section class="card span-6">
-          <h2>Status</h2>
-          <p class="muted">Verifica /health e mostra resposta.</p>
-          <div class="actions">
-            <button class="btn" id="btnHealth">Checar Health</button>
+          <h2>Cadastro de usuário</h2>
+          <p class="muted">Crie um usuário de teste (conta + owner) e vincule o WhatsApp.</p>
+          <div class="row">
+            <div class="field">
+              <label for="registerName">Nome</label>
+              <input id="registerName" placeholder="Maria Silva" />
+            </div>
+            <div class="field">
+              <label for="registerWhatsapp">WhatsApp (formato +55...)</label>
+              <input id="registerWhatsapp" value="+55" inputmode="tel" placeholder="+5511999999999" />
+            </div>
+          </div>
+          <div class="actions" style="margin-top: 16px;">
+            <button class="btn" id="btnRegister">Cadastrar</button>
+            <div id="registerResult" class="badge"></div>
+          </div>
+          <div id="registerDetails" class="muted small" style="margin-top: 10px;"></div>
+        </section>
+
+        <section class="card span-6">
+          <h2>Fluxos de demonstração</h2>
+          <p class="muted">Dispare fluxos e visualize a conversa consolidada em tempo real.</p>
+          <div class="row">
+            <div class="field">
+              <label for="conversationPhone">WhatsApp destino</label>
+              <input id="conversationPhone" value="+55" inputmode="tel" placeholder="+5511999999999" />
+            </div>
+            <div class="field">
+              <label for="adminToken">X-Admin-Token (opcional)</label>
+              <input id="adminToken" placeholder="token" />
+            </div>
+          </div>
+          <div class="flow-buttons" style="margin-top: 18px;">
+            <button class="btn" id="btnFlowImportStart">Fluxo Importação • iniciar</button>
+            <button class="btn" id="btnFlowImportSummary">Enviar resumo importação</button>
+            <button class="btn" id="btnFlowImportConsumption">Enviar consumo estimado</button>
+            <button class="btn" id="btnFlowLowStock">Fluxo Estoque baixo</button>
+            <button class="btn" id="btnFlowCmv">Fluxo CMV</button>
+          </div>
+          <div class="actions" style="margin-top: 6px;">
+            <button class="btn secondary" id="btnHealth">Checar health</button>
             <div id="healthResult" class="badge"></div>
+          </div>
+          <div class="actions" style="margin-top: 6px;">
+            <div id="flowStatus" class="badge"></div>
           </div>
         </section>
 
         <section class="card span-6">
           <h2>Templates Meta</h2>
-          <p class="muted">Lista de templates aprovados para abertura de conversa.</p>
+          <p class="muted">Liste templates aprovados e envie um template para abrir a conversa.</p>
           <div class="row">
-            <button class="btn" id="btnLoadMeta">Carregar</button>
+            <div class="field">
+              <label for="metaPhone">WhatsApp destino</label>
+              <input id="metaPhone" value="+55" inputmode="tel" placeholder="+5511999999999" />
+            </div>
+            <div class="field" style="max-width: 200px;">
+              <label for="metaLang">Idioma</label>
+              <input id="metaLang" value="pt_BR" />
+            </div>
           </div>
-          <div id="metaTemplates" style="margin-top:10px; max-height:220px; overflow:auto;"></div>
-        </section>
-
-        
-
-        <section class="card span-6">
-          <h2>Enviar Template WhatsApp</h2>
-          <p class="muted">Envie um template da Meta para abrir a conversa.</p>
-          <label>To (ex: +5511999999999)</label>
-          <input id="to" value="+55" inputmode="tel" pattern="^\+\d{8,15}$" title="Use formato +DDI... apenas números" />
-          <label>Template (Meta)</label>
-          <div class="row">
-            <select id="templateSelect">
-              <option value="">Selecione ou clique em Carregar</option>
+          <div class="field" style="margin-top: 12px;">
+            <label for="metaTemplateSelect">Template Meta</label>
+            <select id="metaTemplateSelect">
+              <option value="">Selecione ou clique em carregar</option>
             </select>
-            <button class="btn" id="btnLoadMetaSelect">Carregar</button>
           </div>
-          <div id="templateAdvanced">
-            <label>Linguagem (ex: pt_BR)</label>
-            <input id="lang" value="pt_BR" />
-            <label>Variáveis (separadas por vírgula)</label>
-            <input id="vars" placeholder="João, 10:30" />
+          <div class="field" style="margin-top: 12px;">
+            <label for="metaVariables">Variáveis (separadas por vírgula)</label>
+            <input id="metaVariables" placeholder="ex: Maria, 10:30" />
           </div>
-          <div class="actions">
-            <button class="btn" id="btnSendTemplate">Enviar</button>
-            <button class="btn secondary" id="btnClearLog">Limpar log</button>
+          <div class="actions" style="margin-top: 14px;">
+            <button class="btn" id="btnLoadMeta">Carregar templates</button>
+            <button class="btn secondary" id="btnSendMetaTemplate">Enviar template</button>
+            <div id="metaStatus" class="badge"></div>
+          </div>
+          <div id="metaTemplatesList" class="template-list" style="display: none;"></div>
+        </section>
+
+        <section class="card conversation-card" style="grid-column: span 12;">
+          <div class="card-header">
+            <h2>Conversa</h2>
+            <div class="card-actions">
+              <button class="btn secondary" id="btnRefreshConversation">Atualizar conversa</button>
+            </div>
+          </div>
+          <div id="conversationEmpty" class="muted small">Nenhuma mensagem registrada ainda. Dispare um fluxo e clique em “Atualizar conversa”.</div>
+          <div id="conversationTimeline" class="timeline"></div>
+          <div id="buttonClicksSection" class="button-clicks" style="display: none;">
+            <h3>Cliques em botões</h3>
+            <ul id="buttonClicksList"></ul>
           </div>
         </section>
 
-        <section class="card span-6">
-          <h2>Catálogo Local (wa_buttons_catalog)</h2>
-          <p class="muted">Selecione um item ativo com template cadastrado.</p>
-          <div class="row">
-            <select id="localTemplateSelect">
-              <option value="">Selecione ou clique em Carregar</option>
-            </select>
-            <button class="btn" id="btnLoadLocalSelect">Carregar</button>
-          </div>
-          <div class="actions" style="margin-top:10px;">
-            <button class="btn" id="btnSendLocal">Enviar Local</button>
-          </div>
-          <div id="localPreview" class="muted" style="margin-top:8px; font-size: 12px;"></div>
-        </section>
-
-        <section class="card" style="grid-column: span 12">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h2 style="margin: 0;">Log</h2>
-            <button id="copyLog" class="btn secondary" style="padding: 6px 12px; font-size: 12px;">
-              Copiar Log
-            </button>
+        <section class="card" style="grid-column: span 12;">
+          <div class="card-header">
+            <h2>Console</h2>
+            <div class="card-actions">
+              <button class="btn secondary" id="btnCopyLog">Copiar</button>
+              <button class="btn secondary" id="btnClearLog">Limpar</button>
+            </div>
           </div>
           <pre class="log" id="log"></pre>
         </section>

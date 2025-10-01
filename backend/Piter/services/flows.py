@@ -54,7 +54,7 @@ class DemoFlowsService:
         return self.client.send_buttons(to=to, body_text=body, buttons=buttons)
 
     def send_consumption_list(self, to: str, items: List[Dict[str, Any]]) -> Dict[str, Any]:
-        # items: list[{nome, qtd, unid}]
+        """Envia a lista diária de consumo e oferece a geração de PDF."""
         top10 = items[:10]
         lines: List[str] = []
         lines.append("Consumo estimado — Top 10 insumos (hoje)\n")
@@ -62,7 +62,61 @@ class DemoFlowsService:
             lines.append(f"{i}) {it.get('nome','-')} — {it.get('qtd',0)} {it.get('unid','')}")
         lines.append("\nDica: use essa lista para conferir a cozinha e acompanhar o CMV teórico do dia.")
         text = "\n".join(lines)
+
+        resp = self.client.send_text(to=to, text=text)
+        # Oferece geração de PDF fictício logo na sequência
+        self.client.send_buttons(
+            to=to,
+            body_text="Quer que eu gere um PDF com todo o consumo do dia para impressão?",
+            buttons=[{"id": "generate_consumption_pdf", "title": "Gerar PDF do dia"}]
+        )
+        return resp
+
+    def send_consumption_pdf(self, to: str) -> None:
+        """Envia um PDF fictício do consumo diário e sugere próximos passos."""
+        pdf_url = "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
+        caption = "Relatório de consumo diário (PDF fictício)."
+        self.client.send_document(
+            to=to,
+            document_url=pdf_url,
+            filename="consumo-diario.pdf",
+            caption=caption,
+        )
+        self.client.send_buttons(
+            to=to,
+            body_text="Quer ver o consumo dos últimos 7 dias ou prefere outra análise?",
+            buttons=[
+                {"id": "view_consumption_history_7d", "title": "Ver 7 dias"},
+                {"id": "explore_other_insights", "title": "Ver outra coisa"},
+            ],
+        )
+
+    def send_consumption_history_7d(self, to: str) -> Dict[str, Any]:
+        """Envio rápido com o consumo consolidado dos últimos 7 dias."""
+        lines = [
+            "Consumo consolidado — Últimos 7 dias\n",
+            "• Massa de pizza: 102 kg",
+            "• Molho de tomate: 38 L",
+            "• Mussarela: 71 kg",
+            "• Calabresa: 42 kg",
+            "• Catupiry: 28 kg",
+            "• Pepperoni: 19 kg",
+            "\nQuer comparar com algum período específico?",
+        ]
+        text = "\n".join(lines)
         return self.client.send_text(to=to, text=text)
+
+    def send_additional_options(self, to: str) -> Dict[str, Any]:
+        """Sugere outros caminhos após o cliente pedir novas análises."""
+        return self.client.send_buttons(
+            to=to,
+            body_text="Legal! Posso te mostrar estoque, CMV ou alertas em aberto. O que prefere?",
+            buttons=[
+                {"id": "view_low_stock", "title": "Estoque crítico"},
+                {"id": "view_cmv_analysis", "title": "CMV"},
+                {"id": "view_summary", "title": "Resumo de vendas"},
+            ],
+        )
 
     # =============
     # Fluxo 2: Estoque baixo detectado
